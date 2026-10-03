@@ -1,0 +1,311 @@
+<title>Team 7 Car Wiring</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one reading column; wide drawings scroll inside their own frame. Nets are colour-coded like real wires. */
+:root {
+  --bg: #f2f4f1; --surface: #ffffff; --ink: #18211c; --muted: #5d6962; --line: #d3dad4; --accent: #0e7a50;
+  --n-vbat: #cf2e26; --n-6v: #d9730c; --n-5v: #b8337f; --n-3v3: #6a45c7; --n-gnd: #2a2f2c; --n-sig: #1b67a8; --n-mot: #7a6a4f;
+  --chip-bg: #eef2ee;
+  --f-display: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111613; --surface: #19201c; --ink: #e3eae5; --muted: #98a59d; --line: #2d3731; --accent: #43c08c;
+    --n-vbat: #ff6a5e; --n-6v: #ffa149; --n-5v: #ef72bd; --n-3v3: #ad8fff; --n-gnd: #cfd6d1; --n-sig: #5eaae8; --n-mot: #c8b48e;
+    --chip-bg: #222b26; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111613; --surface: #19201c; --ink: #e3eae5; --muted: #98a59d; --line: #2d3731; --accent: #43c08c;
+  --n-vbat: #ff6a5e; --n-6v: #ffa149; --n-5v: #ef72bd; --n-3v3: #ad8fff; --n-gnd: #cfd6d1; --n-sig: #5eaae8; --n-mot: #c8b48e;
+  --chip-bg: #222b26; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.55; }
+.wrap { max-width: 1000px; margin: 0 auto; padding-inline: 16px; padding-block: 28px 64px; display: flex; flex-direction: column; gap: 36px; }
+header { display: flex; flex-direction: column; gap: 6px; }
+.eyebrow { font-family: var(--f-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+h1 { font-family: var(--f-display); font-weight: 700; font-size: clamp(34px, 6vw, 48px); line-height: 1; margin: 0; letter-spacing: .01em; text-wrap: balance; }
+h2 { font-family: var(--f-display); font-weight: 600; font-size: 26px; margin: 0; letter-spacing: .02em; text-wrap: balance; }
+h3 { font-family: var(--f-display); font-weight: 600; font-size: 20px; margin: 0; letter-spacing: .02em; }
+p { margin: 0; max-width: 68ch; }
+section { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.lede { color: var(--muted); max-width: 70ch; }
+code, .mono { font-family: var(--f-mono); font-size: .92em; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 13px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 22px; height: 4px; border-radius: 2px; display: inline-block; }
+
+.rule { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+.rule > div { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.rule strong { font-family: var(--f-display); font-size: 19px; font-weight: 600; letter-spacing: .02em; }
+.rule p { font-size: 14px; color: var(--muted); }
+
+.frame { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow-x: auto; }
+.frame svg { display: block; min-width: 900px; width: 100%; height: auto; }
+.note { font-size: 13.5px; color: var(--muted); }
+
+/* SVG styling from tokens */
+.blk { fill: var(--surface); stroke: var(--ink); stroke-width: 1.4; }
+.blk-soft { fill: var(--chip-bg); stroke: var(--line); stroke-width: 1.2; }
+.t { fill: var(--ink); font-family: var(--f-body); font-size: 13px; }
+.tb { fill: var(--ink); font-family: var(--f-display); font-size: 17px; font-weight: 600; letter-spacing: .03em; }
+.tm { fill: var(--muted); font-family: var(--f-body); font-size: 12px; }
+.tp { fill: var(--ink); font-family: var(--f-mono); font-size: 12px; }
+.tpm { fill: var(--muted); font-family: var(--f-mono); font-size: 11px; }
+.w { fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.w-vbat { stroke: var(--n-vbat); } .w-6v { stroke: var(--n-6v); } .w-5v { stroke: var(--n-5v); }
+.w-gnd { stroke: var(--n-gnd); } .w-mot { stroke: var(--n-mot); stroke-dasharray: 7 5; } .w-sig { stroke: var(--n-sig); }
+.f-vbat { fill: var(--n-vbat); } .f-6v { fill: var(--n-6v); } .f-5v { fill: var(--n-5v); } .f-3v3 { fill: var(--n-3v3); }
+.f-gnd { fill: var(--n-gnd); } .f-sig { fill: var(--n-sig); } .f-off { fill: var(--line); } .f-mut { fill: var(--muted); }
+.gsym { stroke: var(--n-gnd); stroke-width: 2; fill: none; }
+
+/* header cards */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px 12px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.card-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.jid { font-family: var(--f-mono); font-weight: 600; color: var(--accent); }
+.kind { font-family: var(--f-mono); font-size: 11.5px; color: var(--muted); letter-spacing: .04em; text-transform: uppercase; }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+td, th { text-align: left; padding: 5px 6px; border-top: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 500; color: var(--muted); font-size: 12px; border-top: none; }
+td:first-child { font-family: var(--f-mono); width: 2.2em; color: var(--muted); font-variant-numeric: tabular-nums; }
+.net { display: inline-block; font-family: var(--f-mono); font-size: 12px; font-weight: 600; padding: 1px 7px; border-radius: 4px; background: var(--chip-bg); border-left: 4px solid currentColor; white-space: nowrap; }
+.n-vbat { color: var(--n-vbat); } .n-6v { color: var(--n-6v); } .n-5v { color: var(--n-5v); } .n-3v3 { color: var(--n-3v3); }
+.n-gnd { color: var(--n-gnd); } .n-sig { color: var(--n-sig); } .n-mot { color: var(--n-mot); }
+.card .extra { font-size: 13px; color: var(--muted); }
+
+ol.check { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 6px; max-width: 75ch; }
+.warn { border-left: 4px solid var(--n-vbat); background: var(--surface); padding: 10px 14px; border-radius: 0 8px 8px 0; font-size: 14px; max-width: 80ch; }
+a { color: var(--accent); }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">MR2006B · Team 7 · firmware v1.3</div>
+    <h1>Team 7 Car Wiring</h1>
+    <p class="lede">What to solder where on the perfboard that sits on the NUCLEO-F446RE's inner morpho rows. It matches the pins in <code>Team7_Car.ioc</code> (CubeIDE) and <code>config.h</code> (Arduino).</p>
+    <div class="legend" aria-label="Net colours">
+      <span><i class="sw" style="background:var(--n-vbat)"></i>VBAT 11–12.6 V</span>
+      <span><i class="sw" style="background:var(--n-6v)"></i>6 V servo</span>
+      <span><i class="sw" style="background:var(--n-5v)"></i>5 V</span>
+      <span><i class="sw" style="background:var(--n-3v3)"></i>3.3 V</span>
+      <span><i class="sw" style="background:var(--n-gnd)"></i>GND</span>
+      <span><i class="sw" style="background:var(--n-sig)"></i>Signal</span>
+      <span><i class="sw" style="background:var(--n-mot)"></i>Motor current</span>
+    </div>
+  </header>
+
+  <section>
+    <h2>Connector rule</h2>
+    <div class="rule">
+      <div><strong>Male pins on the perfboard</strong><p>Every header J1–J6 on the perfboard is a male pin header. Cables end in female plugs. Your motor/encoder and servo cables already work this way.</p></div>
+      <div><strong>Modules: female–female jumpers</strong><p>The Bluetooth, MPU-6050, HC-SR04 and L298N logic pins are male pins on the module, so connect them with female–female Dupont wires (a 4-wire ribbon keeps them together).</p></div>
+      <div><strong>Power: screw terminals</strong><p>The 5 V and 6 V inputs (J7, J8) and the battery wiring use screw terminals or soldered wire. Dupont plugs can wiggle loose and don't like amps.</p></div>
+      <div><strong>Label every plug</strong><p>J4, J5 and J6 are all 4-pin. Mark each header and its cable with the same colour dot. Swapping them puts 5 V on a signal pin.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Power</h2>
+    <p>The battery feeds a terminal block (for example WAGO 221). From there each part gets its own supply wire. Only 5 V, 6 V and the battery-sense wire go to the perfboard.</p>
+    <div class="frame" role="img" aria-label="Power distribution diagram">
+      <svg viewBox="0 0 960 430" xmlns="http://www.w3.org/2000/svg">
+        <!-- battery -->
+        <rect class="blk" x="20" y="36" width="150" height="76" rx="6"/>
+        <text class="tb" x="95" y="66" text-anchor="middle">BATTERY 3S</text>
+        <text class="tm" x="95" y="86" text-anchor="middle">11.1 V · 12.6 V full</text>
+        <text class="tp" x="160" y="58" text-anchor="end">+</text>
+        <text class="tp" x="160" y="104" text-anchor="end">−</text>
+        <!-- switch + fuse -->
+        <path class="w w-vbat" d="M170 54 H205"/>
+        <rect class="blk" x="205" y="40" width="64" height="28" rx="4"/>
+        <text class="tp" x="237" y="58" text-anchor="middle">SWITCH</text>
+        <path class="w w-vbat" d="M269 54 H298"/>
+        <rect class="blk" x="298" y="40" width="72" height="28" rx="4"/>
+        <text class="tp" x="334" y="58" text-anchor="middle">FUSE 5 A</text>
+        <path class="w w-vbat" d="M370 54 H445"/>
+        <!-- battery minus to ground -->
+        <path class="w w-gnd" d="M170 100 H190 V150"/>
+        <path class="gsym" d="M178 150 H202 M183 156 H197 M187 162 H193"/>
+        <!-- terminal block -->
+        <rect class="blk-soft" x="430" y="36" width="36" height="300" rx="5"/>
+        <rect x="438" y="44" width="20" height="284" rx="3" class="f-vbat" opacity=".18"/>
+        <text class="tb" x="448" y="190" text-anchor="middle" transform="rotate(-90 448 190)">TERMINAL BLOCK · VBAT</text>
+        <!-- branches -->
+        <path class="w w-vbat" d="M466 80 H560"/>
+        <path class="w w-vbat" d="M466 160 H560"/>
+        <path class="w w-vbat" d="M466 240 H560"/>
+        <path class="w w-vbat" d="M466 312 H800"/>
+        <!-- L298N -->
+        <rect class="blk" x="560" y="50" width="200" height="62" rx="6"/>
+        <text class="tb" x="575" y="74">L298N</text>
+        <text class="tm" x="575" y="92">+12V ← VBAT, GND ⏚</text>
+        <text class="tm" x="575" y="106">5V screw pin: leave empty</text>
+        <path class="gsym" d="M740 112 V122 M728 122 H752 M733 128 H747 M737 134 H743"/>
+        <path class="w w-mot" d="M760 80 H800"/>
+        <rect class="blk-soft" x="800" y="56" width="148" height="48" rx="5"/>
+        <text class="tp" x="812" y="76">OUT1 → J1-1 (M+)</text>
+        <text class="tp" x="812" y="94">OUT2 → J1-6 (M−)</text>
+        <!-- XL4015 -->
+        <rect class="blk" x="560" y="130" width="200" height="62" rx="6"/>
+        <text class="tb" x="575" y="154">XL4015 BUCK (5 A)</text>
+        <text class="tm" x="575" y="172">set 6.0 V before connecting</text>
+        <text class="tm" x="575" y="186">servo only</text>
+        <path class="gsym" d="M740 192 V202 M728 202 H752 M733 208 H747 M737 214 H743"/>
+        <path class="w w-6v" d="M760 160 H800"/>
+        <rect class="blk-soft" x="800" y="136" width="148" height="48" rx="5"/>
+        <text class="tp" x="812" y="156">J8 (6 V in)</text>
+        <text class="tp" x="812" y="174">→ J2-2 servo +</text>
+        <!-- 5V supply -->
+        <rect class="blk" x="560" y="210" width="200" height="62" rx="6"/>
+        <text class="tb" x="575" y="234">5 V SUPPLY</text>
+        <text class="tm" x="575" y="252">power module, or 2nd buck</text>
+        <text class="tm" x="575" y="266">set to 5.0 V</text>
+        <path class="gsym" d="M740 272 V282 M728 282 H752 M733 288 H747 M737 294 H743"/>
+        <path class="w w-5v" d="M760 240 H800"/>
+        <rect class="blk-soft" x="800" y="216" width="148" height="48" rx="5"/>
+        <text class="tp" x="812" y="236">J7 → 5 V rail</text>
+        <text class="tp" x="812" y="254">→ E5V (CN7-6)</text>
+        <!-- battery sense -->
+        <rect class="blk-soft" x="800" y="294" width="148" height="48" rx="5"/>
+        <text class="tp" x="812" y="314">J9 battery sense</text>
+        <text class="tp" x="812" y="332">10k→PA4, 3.3k→GND</text>
+        <!-- ground note -->
+        <path class="gsym" d="M40 380 V390 M28 390 H52 M33 396 H47 M37 402 H43"/>
+        <text class="t" x="64" y="396">All ground symbols are one common ground: battery −, terminal block GND row, L298N GND, both bucks, perfboard GND rail.</text>
+      </svg>
+    </div>
+    <p class="note">Solder a 1000 µF 16 V capacitor across J2 pins 1–2 (servo), and 100 µF across the 5 V rail. Set both bucks with a multimeter before anything is plugged into them.</p>
+  </section>
+
+  <section>
+    <h2>Nucleo pins under the perfboard</h2>
+    <p>Top view, USB end at the top. Your female headers sit on the <strong>inner</strong> row of each side. Coloured dots are the pins to wire. Row 1 and row 19 are unused, so either end can be cut off.</p>
+    <div class="frame" role="img" aria-label="Morpho pin map">
+      <svg viewBox="0 0 960 560" xmlns="http://www.w3.org/2000/svg" id="pinmap"></svg>
+    </div>
+    <p class="note">Leave CN7-18 (+5V) unconnected. With the power jumper on E5V it is the same 5 V anyway, and wiring both invites two supplies fighting when someone moves the jumper.</p>
+  </section>
+
+  <section>
+    <h2>Perfboard headers</h2>
+    <p>Pin 1 of each header is listed first. The pin order matches the device or cable, so a straight 4-wire ribbon or the existing plug fits without crossing wires. Check the motor cable colours against your motor's label before soldering J1.</p>
+    <div class="cards" id="cards"></div>
+  </section>
+
+  <section>
+    <h2>Before the first power-up</h2>
+    <ol class="check">
+      <li>Continuity: the GND rail beeps to CN7-20, CN7-22 and CN10-9.</li>
+      <li>No shorts: 5V–GND, 3V3–GND, 6V–GND and VBAT–GND must <em>not</em> beep.</li>
+      <li>Power the bucks with nothing attached. Set 6.0 V (XL4015) and 5.0 V.</li>
+      <li>Power jumper JP5 on <strong>E5V</strong>. Switch the battery on first, then plug in USB.</li>
+      <li>Measure PA7 (CN10-15) while holding a hand 10 cm in front of the HC-SR04: it must never go above 3.3 V.</li>
+      <li>Only then plug the servo, motor and modules into their headers.</li>
+    </ol>
+    <div class="warn">The L298N's 5V screw pin is an output from its own regulator. Connecting it to your 5 V rail makes two supplies fight. Leave it empty.</div>
+  </section>
+</div>
+
+<script>
+// ---- pin map (inner morpho rows) ----
+(function () {
+  const svg = document.getElementById('pinmap');
+  const NS = 'http://www.w3.org/2000/svg';
+  const el = (tag, attrs, text) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (text != null) e.textContent = text; svg.appendChild(e); return e; };
+  const top = 62, pitch = 25, xL = 330, xR = 630;
+  const rowY = r => top + (r - 1) * pitch;
+  // board body
+  el('rect', { x: xL - 40, y: 24, width: (xR - xL) + 80, height: 520, rx: 10, class: 'blk-soft' });
+  el('text', { x: 480, y: 44, 'text-anchor': 'middle', class: 'tm' }, '▲ USB end (ST-LINK)');
+  el('text', { x: 480, y: 270, 'text-anchor': 'middle', class: 'tb' }, 'NUCLEO-F446RE');
+  el('text', { x: 480, y: 292, 'text-anchor': 'middle', class: 'tm' }, 'top view · perfboard sits on top');
+  el('text', { x: xL, y: 538, 'text-anchor': 'middle', class: 'tpm' }, 'CN7 inner');
+  el('text', { x: xR, y: 538, 'text-anchor': 'middle', class: 'tpm' }, 'CN10 inner');
+  // CN7 even pins (inner), CN10 odd pins (inner). [pin, name, text, net]
+  const cn7 = {
+    6: ['E5V', 'E5V ← 5 V rail (J7 +)', '5v'], 16: ['+3.3V', '3V3 → J1-5 encoder VCC', '3v3'], 18: ['+5V', '+5V · leave unconnected', 'mut'],
+    20: ['GND', 'GND → GND rail', 'gnd'], 22: ['GND', 'GND → GND rail', 'gnd'], 28: ['PA0', 'PA0 · encoder A ← J1-3', 'sig'],
+    30: ['PA1', 'PA1 · encoder B ← J1-4', 'sig'], 32: ['PA4', 'PA4 · battery sense (J9)', 'sig'], 34: ['PB0', 'PB0 · start button → GND', 'sig']
+  };
+  const cn10 = {
+    3: ['PB8', 'PB8 · SCL → J4-3 MPU-6050', 'sig'], 5: ['PB9', 'PB9 · SDA → J4-4 MPU-6050', 'sig'], 9: ['GND', 'GND → GND rail', 'gnd'],
+    15: ['PA7', 'PA7 · ECHO via divider ← J5-3', 'sig'], 17: ['PB6', 'PB6 · TRIG → J5-2', 'sig'], 21: ['PA9', 'PA9 · TX → J6-1 (BT RXD)', 'sig'],
+    23: ['PA8', 'PA8 · ENA → J3-1 L298N', 'sig'], 25: ['PB10', 'PB10 · servo → J2-3', 'sig'], 27: ['PB4', 'PB4 · IN2 → J3-3 L298N', 'sig'],
+    29: ['PB5', 'PB5 · IN1 → J3-2 L298N', 'sig'], 33: ['PA10', 'PA10 · RX ← J6-2 (BT TXD)', 'sig']
+  };
+  for (let r = 1; r <= 19; r++) {
+    const y = rowY(r);
+    // outer columns, faint
+    el('circle', { cx: xL - 22, cy: y, r: 3.5, class: 'f-off' });
+    el('circle', { cx: xR + 22, cy: y, r: 3.5, class: 'f-off' });
+    const pL = r * 2, pR = r * 2 - 1;
+    const L = cn7[pL], R = cn10[pR];
+    el('circle', { cx: xL, cy: y, r: L ? 7 : 4.5, class: L ? 'f-' + (L[2] === 'mut' ? 'mut' : L[2]) : 'f-off' });
+    el('circle', { cx: xR, cy: y, r: R ? 7 : 4.5, class: R ? 'f-' + (R[2] === 'mut' ? 'mut' : R[2]) : 'f-off' });
+    el('text', { x: xL + 14, y: y + 4, class: 'tpm' }, pL);
+    el('text', { x: xR - 14, y: y + 4, 'text-anchor': 'end', class: 'tpm' }, pR);
+    if (L) el('text', { x: xL - 36, y: y + 4, 'text-anchor': 'end', class: L[2] === 'mut' ? 'tpm' : 'tp' }, L[1]);
+    if (R) el('text', { x: xR + 36, y: y + 4, class: 'tp' }, R[1]);
+    if (r === 1 || r === 19) {
+      el('text', { x: xL - 36, y: y + 4, 'text-anchor': 'end', class: 'tpm' }, 'row ' + r + ': unused, can drop');
+      el('text', { x: xR + 36, y: y + 4, class: 'tpm' }, 'row ' + r + ': unused, can drop');
+    }
+  }
+})();
+
+// ---- header cards ----
+(function () {
+  const H = [
+    { id: 'J1', name: 'Motor + encoder', kind: '6-pin male', cable: 'Your motor cable (female) plugs in here.', pins: [
+      ['M+ (red)', 'mot', 'wire → L298N OUT1'], ['ENC GND (black)', 'gnd', 'GND rail'], ['ENC A (yellow)', 'sig', 'CN7-28 · PA0'],
+      ['ENC B (green)', 'sig', 'CN7-30 · PA1'], ['ENC VCC (blue)', '3v3', 'CN7-16 · 3V3'], ['M− (white)', 'mot', 'wire → L298N OUT2']],
+      extra: 'Colours are the usual 25GA-370 ones. Check your cable. If the motor runs backwards, set MOTOR_INVERT, don\'t resolder.' },
+    { id: 'J2', name: 'Servo MG996R', kind: '3-pin male', cable: 'Servo plug (female): brown, red, orange.', pins: [
+      ['GND (brown)', 'gnd', 'GND rail'], ['+6 V (red)', '6v', 'from J8 +'], ['Signal (orange)', 'sig', 'CN10-25 · PB10']],
+      extra: '1000 µF 16 V across pins 1–2, right at the header (stripe to GND).' },
+    { id: 'J3', name: 'L298N control', kind: '3-pin male', cable: 'Female–female jumpers to the L298N pins ENA, IN1, IN2.', pins: [
+      ['ENA', 'sig', 'CN10-23 · PA8'], ['IN1', 'sig', 'CN10-29 · PB5'], ['IN2', 'sig', 'CN10-27 · PB4']],
+      extra: 'Pull the ENA jumper off the L298N first. Ground reference comes through the common ground.' },
+    { id: 'J4', name: 'MPU-6050 (GY-521)', kind: '4-pin male', cable: 'Female–female jumpers to VCC, GND, SCL, SDA.', pins: [
+      ['VCC', '5v', '5 V rail'], ['GND', 'gnd', 'GND rail'], ['SCL', 'sig', 'CN10-3 · PB8'], ['SDA', 'sig', 'CN10-5 · PB9']],
+      extra: 'The module has its own pull-ups. Leave XDA, XCL, AD0, INT unconnected.' },
+    { id: 'J5', name: 'HC-SR04', kind: '4-pin male', cable: 'Female–female jumpers, same order as on the sensor.', pins: [
+      ['VCC', '5v', '5 V rail'], ['TRIG', 'sig', 'CN10-17 · PB6'], ['ECHO', 'sig', '1 kΩ → CN10-15 · PA7'], ['GND', 'gnd', 'GND rail']],
+      extra: 'Divider: ECHO → 1 kΩ → PA7, and 2 kΩ from PA7 to GND. ECHO is 5 V and PA7 wants 3.3 V.' },
+    { id: 'J6', name: 'Bluetooth BT04 / ZS-040', kind: '4-pin male', cable: 'Female–female jumpers to the module\'s middle four pins.', pins: [
+      ['RXD', 'sig', 'CN10-21 · PA9 (MCU TX)'], ['TXD', 'sig', 'CN10-33 · PA10 (MCU RX)'], ['GND', 'gnd', 'GND rail'], ['VCC', '5v', '5 V rail']],
+      extra: 'TX goes to RX. STATE and EN stay unconnected.' },
+    { id: 'J7', name: '5 V input', kind: '2-pin screw terminal', cable: 'Wires from the 5 V supply output.', pins: [
+      ['+5 V', '5v', '5 V rail + CN7-6 · E5V'], ['GND', 'gnd', 'GND rail']],
+      extra: '100 µF across the rail. Power jumper JP5 on the Nucleo set to E5V.' },
+    { id: 'J8', name: '6 V servo input', kind: '2-pin screw terminal', cable: 'Wires from the XL4015 output.', pins: [
+      ['+6 V', '6v', 'J2-2 only'], ['GND', 'gnd', 'GND rail']],
+      extra: 'The 6 V goes to the servo pin and nowhere else.' },
+    { id: 'J9', name: 'Battery sense', kind: '1 wire + 2 resistors', cable: 'One thin wire from the terminal block VBAT row.', pins: [
+      ['VBAT', 'vbat', '10 kΩ → CN7-32 · PA4'], ['—', 'gnd', '3.3 kΩ from PA4 to GND']],
+      extra: '12.6 V becomes 3.1 V at the pin. Trim BATT_DIVIDER in config.h against a multimeter.' },
+    { id: 'SW', name: 'Start button', kind: 'push button', cable: 'Solder on the board, or 2-pin header to a panel button.', pins: [
+      ['A', 'sig', 'CN7-34 · PB0'], ['B', 'gnd', 'GND rail']],
+      extra: 'No resistor needed. The firmware turns on the internal pull-up.' }
+  ];
+  const netLabel = { vbat: 'VBAT', '6v': '6V', '5v': '5V', '3v3': '3V3', gnd: 'GND', sig: 'SIG', mot: 'MOTOR' };
+  const root = document.getElementById('cards');
+  for (const h of H) {
+    const c = document.createElement('article'); c.className = 'card';
+    let rows = '';
+    h.pins.forEach((p, i) => { rows += `<tr><td>${h.pins.length > 1 || h.id !== 'J9' ? i + 1 : ''}</td><td>${p[0]}</td><td><span class="net n-${p[1]}">${netLabel[p[1]]}</span></td><td>${p[2]}</td></tr>`; });
+    c.innerHTML = `<div class="card-top"><h3><span class="jid">${h.id}</span> ${h.name}</h3><span class="kind">${h.kind}</span></div>
+      <p class="extra">${h.cable}</p>
+      <table><thead><tr><th>Pin</th><th>Signal</th><th>Net</th><th>Solder to</th></tr></thead><tbody>${rows}</tbody></table>
+      <p class="extra">${h.extra}</p>`;
+    root.appendChild(c);
+  }
+})();
+</script>

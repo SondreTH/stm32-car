@@ -1,0 +1,19 @@
+# STM32CubeIDE build output
+Debug/
+Release/
+*.elf
+*.map
+*.list
+*.o
+*.d
+# CubeIDE generates these from the .ioc
+Drivers/
+.settings/
+# Arduino / tools
+build/
+tools/logs/
+tools/saved_paths/
+__pycache__/
+*.pyc
+tools/sim
+tools/sim_out.csv
