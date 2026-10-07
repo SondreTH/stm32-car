@@ -3,8 +3,8 @@
 plot_run.py - plot a run: where the car thinks it drove vs. the path
 
   python plot_run.py logs/run_20261001_101500.csv
-  python plot_run.py logs/run_....csv --path ../car_firmware/path_data.h
-  python plot_run.py sim_out.csv --path ../car_firmware/path_data.h
+  python plot_run.py logs/run_....csv --path ../cubeide/Team7_Car/Core/Inc/path_data.h
+  python plot_run.py sim_out.csv --path ../cubeide/Team7_Car/Core/Inc/path_data.h
 
 Saves a PNG next to the CSV and opens a window.
 Also works for a TEACH drive (just the x/y trace).

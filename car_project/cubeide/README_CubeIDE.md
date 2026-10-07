@@ -1,6 +1,6 @@
 # Team 7 car – STM32CubeIDE version (v1.3)
 
-The same car firmware as the Arduino version, rewritten in C with ST's HAL. All pins are set
+The car firmware, written in C with ST's HAL. All pins are set
 in **`Team7_Car.ioc`**, so CubeIDE shows them in the Pinout view (the screenshots for the professor).
 
 ```
@@ -41,7 +41,7 @@ If they're gone, add them back inside these sections:
 
 - **USB:** any serial terminal on the ST-LINK COM port at **115200**, line ending **LF/Newline**.
 - **Bluetooth:** the BT module's COM port at **9600**. `tools/car_console.py` works with both.
-- The commands, telemetry columns, TEACH/AUTO workflow and bring-up tests are the same as the Arduino version (main `README.md`, sections 3–5).
+- The commands, telemetry columns, TEACH/AUTO workflow and bring-up tests are in the main `README.md`, sections 3–5.
 
 ## 3. Configuration (for the report, and to rebuild the .ioc by hand)
 

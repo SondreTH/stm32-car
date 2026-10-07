@@ -9,7 +9,7 @@ Release/
 # CubeIDE generates these from the .ioc
 Drivers/
 .settings/
-# Arduino / tools
+# tools
 build/
 tools/logs/
 tools/saved_paths/

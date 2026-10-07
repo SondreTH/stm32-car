@@ -69,7 +69,7 @@ class Console:
                     f.write("\n".join(self.dump) + "\n")
                 n = sum(1 for l in self.dump if l.strip().startswith("{"))
                 print(f"[path saved: {fn}  ({n} points)]")
-                print("[copy it over car_firmware/path_data.h and upload the sketch to make it permanent]")
+                print("[copy it over cubeide/Team7_Car/Core/Inc/path_data.h and rebuild/flash to make it permanent]")
                 self.dump = None
             else:
                 self.dump.append(line)
