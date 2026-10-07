@@ -61,8 +61,8 @@ If they're gone, add them back inside these sections:
 | PA9 / PA10 | USART1 TX / RX | BT_TX / BT_RX | Bluetooth RXD / TXD | CN10-21 / CN10-33 |
 | PB0 | GPIO_Input, pull-up | START_BTN | Start button to GND | CN7-34 |
 | PB10 | TIM2_CH3 (PWM Generation CH3) | SERVO_PWM | Servo signal | CN10-25 |
-| PB4 | GPIO_Output | MOTOR_IN2 | L298N IN2 | CN10-27 |
-| PB5 | GPIO_Output | MOTOR_IN1 | L298N IN1 | CN10-29 |
+| PB4 | GPIO_Output | MOTOR_IN1 | L298N IN1 | CN10-27 |
+| PB5 | GPIO_Output | MOTOR_IN2 | L298N IN2 | CN10-29 |
 | PB6 | GPIO_Output | SONAR_TRIG | HC-SR04 TRIG | CN10-17 |
 | PB8 / PB9 | I2C1 SCL / SDA | IMU_SCL / IMU_SDA | MPU-6050 | CN10-3 / CN10-5 |
 | PC13 | GPIO_Input | B1 | Blue user button | – |

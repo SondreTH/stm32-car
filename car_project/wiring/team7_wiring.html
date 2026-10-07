@@ -237,8 +237,8 @@ a { color: var(--accent); }
   const cn10 = {
     3: ['PB8', 'PB8 · SCL → J4-3 MPU-6050', 'sig'], 5: ['PB9', 'PB9 · SDA → J4-4 MPU-6050', 'sig'], 9: ['GND', 'GND → GND rail', 'gnd'],
     15: ['PA7', 'PA7 · ECHO via divider ← J5-3', 'sig'], 17: ['PB6', 'PB6 · TRIG → J5-2', 'sig'], 21: ['PA9', 'PA9 · TX → J6-1 (BT RXD)', 'sig'],
-    23: ['PA8', 'PA8 · ENA → J3-1 L298N', 'sig'], 25: ['PB10', 'PB10 · servo → J2-3', 'sig'], 27: ['PB4', 'PB4 · IN2 → J3-3 L298N', 'sig'],
-    29: ['PB5', 'PB5 · IN1 → J3-2 L298N', 'sig'], 33: ['PA10', 'PA10 · RX ← J6-2 (BT TXD)', 'sig']
+    23: ['PA8', 'PA8 · ENA → J3-1 L298N', 'sig'], 25: ['PB10', 'PB10 · servo → J2-3', 'sig'], 27: ['PB4', 'PB4 · IN1 → J3-2 L298N', 'sig'],
+    29: ['PB5', 'PB5 · IN2 → J3-3 L298N', 'sig'], 33: ['PA10', 'PA10 · RX ← J6-2 (BT TXD)', 'sig']
   };
   for (let r = 1; r <= 19; r++) {
     const y = rowY(r);
@@ -271,7 +271,7 @@ a { color: var(--accent); }
       ['GND (brown)', 'gnd', 'GND rail'], ['+6 V (red)', '6v', 'from J8 +'], ['Signal (orange)', 'sig', 'CN10-25 · PB10']],
       extra: '1000 µF 16 V across pins 1–2, right at the header (stripe to GND).' },
     { id: 'J3', name: 'L298N control', kind: '3-pin male', cable: 'Female–female jumpers to the L298N pins ENA, IN1, IN2.', pins: [
-      ['ENA', 'sig', 'CN10-23 · PA8'], ['IN1', 'sig', 'CN10-29 · PB5'], ['IN2', 'sig', 'CN10-27 · PB4']],
+      ['ENA', 'sig', 'CN10-23 · PA8'], ['IN1', 'sig', 'CN10-27 · PB4'], ['IN2', 'sig', 'CN10-29 · PB5']],
       extra: 'Pull the ENA jumper off the L298N first. Ground reference comes through the common ground.' },
     { id: 'J4', name: 'MPU-6050 (GY-521)', kind: '4-pin male', cable: 'Female–female jumpers to VCC, GND, SCL, SDA.', pins: [
       ['VCC', '5v', '5 V rail'], ['GND', 'gnd', 'GND rail'], ['SCL', 'sig', 'CN10-3 · PB8'], ['SDA', 'sig', 'CN10-5 · PB9']],

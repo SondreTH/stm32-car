@@ -83,10 +83,10 @@ void Error_Handler(void);
 #define TCK_GPIO_Port GPIOA
 #define SWO_Pin GPIO_PIN_3
 #define SWO_GPIO_Port GPIOB
-#define MOTOR_IN2_Pin GPIO_PIN_4
-#define MOTOR_IN2_GPIO_Port GPIOB
-#define MOTOR_IN1_Pin GPIO_PIN_5
+#define MOTOR_IN1_Pin GPIO_PIN_4
 #define MOTOR_IN1_GPIO_Port GPIOB
+#define MOTOR_IN2_Pin GPIO_PIN_5
+#define MOTOR_IN2_GPIO_Port GPIOB
 #define SONAR_TRIG_Pin GPIO_PIN_6
 #define SONAR_TRIG_GPIO_Port GPIOB
 #define IMU_SCL_Pin GPIO_PIN_8

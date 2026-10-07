@@ -10,7 +10,7 @@
 //  Encoder (25GA-370)  A -> PA0 [A0]   B -> PA1 [A1]   VCC -> 3V3  GND -> GND
 //                      (TIM2 hardware encoder mode - these two pins are fixed)
 //  L298N               ENA -> PA8 [D7] (PWM, remove the ENA jumper)
-//                      IN1 -> PB5 [D4]   IN2 -> PB4 [D5]
+//                      IN1 -> PB4 [D5]   IN2 -> PB5 [D4]
 //  Servo MG996R        signal -> PB10 [D6]   (power from a separate 5-6 V BEC!)
 //  HC-SR04             TRIG -> PB6 [D10]  ECHO -> PA7 [D11] via 1k/2k divider
 //  Bluetooth BT04/ZS-040  module TXD -> PA10 [D2]   module RXD -> PA9 [D8]
@@ -21,8 +21,8 @@
 //  ALL GROUNDS TIED TOGETHER (battery, L298N, BEC, Nucleo, sensors)
 
 #define PIN_MOTOR_EN    PA8
-#define PIN_MOTOR_IN1   PB5
-#define PIN_MOTOR_IN2   PB4
+#define PIN_MOTOR_IN1   PB4
+#define PIN_MOTOR_IN2   PB5
 #define PIN_SERVO       PB10
 #define PIN_SONAR_TRIG  PB6
 #define PIN_SONAR_ECHO  PA7
