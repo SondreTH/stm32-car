@@ -35,8 +35,7 @@ is controlled by an STM32 Nucleo F446RE board.
 
 | Folder | What is inside |
 |---|---|
-| `cubeide/` | STM32CubeIDE project (`Team7_Car.ioc` and the C code). This is the main version. |
-| `car_firmware/` | The same program for Arduino IDE (backup) |
+| `cubeide/` | STM32CubeIDE project (`Team7_Car.ioc` and the C code) |
 | `tools/` | Python programs for logging, plotting runs and making paths, plus a simulator |
 | `cad/` | 3D printed parts (top plate and sensor holder) |
 | `wiring/` | Wiring guide for the circuit board |
