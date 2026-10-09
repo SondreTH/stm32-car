@@ -3,17 +3,8 @@
   ******************************************************************************
   * @file           : main.h
   * @brief          : Header for main.c file.
-  *                   This file contains the common defines of the application.
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2026 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
+  *                   Pin labels below come from stm32-car.ioc. CubeMX rewrites
+  *                   this file on "Generate Code".
   ******************************************************************************
   */
 /* USER CODE END Header */
@@ -61,7 +52,6 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define B1_Pin GPIO_PIN_13
 #define B1_GPIO_Port GPIOC
-#define B1_EXTI_IRQn EXTI15_10_IRQn
 #define ENC_A_Pin GPIO_PIN_0
 #define ENC_A_GPIO_Port GPIOA
 #define ENC_B_Pin GPIO_PIN_1
@@ -70,37 +60,24 @@ void Error_Handler(void);
 #define USART_TX_GPIO_Port GPIOA
 #define USART_RX_Pin GPIO_PIN_3
 #define USART_RX_GPIO_Port GPIOA
-#define Batterim_ling_Pin GPIO_PIN_4
-#define Batterim_ling_GPIO_Port GPIOA
 #define LD2_Pin GPIO_PIN_5
 #define LD2_GPIO_Port GPIOA
-#define Sonar_ECHO_Pin GPIO_PIN_7
-#define Sonar_ECHO_GPIO_Port GPIOA
-#define Sonar_ECHO_EXTI_IRQn EXTI9_5_IRQn
-#define Startknap_Pin GPIO_PIN_0
-#define Startknap_GPIO_Port GPIOB
-#define Motor_PWM_Pin GPIO_PIN_8
-#define Motor_PWM_GPIO_Port GPIOA
-#define Bluetooth_RXD_Pin GPIO_PIN_9
-#define Bluetooth_RXD_GPIO_Port GPIOA
-#define Bluetooth_TXD_Pin GPIO_PIN_10
-#define Bluetooth_TXD_GPIO_Port GPIOA
+#define MOTOR_ENA_Pin GPIO_PIN_8
+#define MOTOR_ENA_GPIO_Port GPIOA
+#define BT_TX_Pin GPIO_PIN_9
+#define BT_TX_GPIO_Port GPIOA
+#define BT_RX_Pin GPIO_PIN_10
+#define BT_RX_GPIO_Port GPIOA
 #define TMS_Pin GPIO_PIN_13
 #define TMS_GPIO_Port GPIOA
 #define TCK_Pin GPIO_PIN_14
 #define TCK_GPIO_Port GPIOA
 #define SWO_Pin GPIO_PIN_3
 #define SWO_GPIO_Port GPIOB
-#define Motor_IN1_Pin GPIO_PIN_4
-#define Motor_IN1_GPIO_Port GPIOB
-#define Motor_IN2_Pin GPIO_PIN_5
-#define Motor_IN2_GPIO_Port GPIOB
-#define Sonar_TRIG_Pin GPIO_PIN_6
-#define Sonar_TRIG_GPIO_Port GPIOB
-#define Gyro_SCL_Pin GPIO_PIN_8
-#define Gyro_SCL_GPIO_Port GPIOB
-#define Gyro_SDA_Pin GPIO_PIN_9
-#define Gyro_SDA_GPIO_Port GPIOB
+#define MOTOR_IN2_Pin GPIO_PIN_4
+#define MOTOR_IN2_GPIO_Port GPIOB
+#define MOTOR_IN1_Pin GPIO_PIN_5
+#define MOTOR_IN1_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 
