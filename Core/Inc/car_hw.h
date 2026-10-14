@@ -1,6 +1,6 @@
 /* =====================================================================
  * car_hw.h - hardware layer on top of the CubeMX-generated HAL setup
- *   encoder (TIM5), motor (TIM1 PWM + IN1/IN2 GPIO)
+ *   encoder (TIM5), motor (TIM1 PWM + IN1/IN2 GPIO), I2C1 bus scan
  * ===================================================================== */
 #ifndef CAR_HW_H
 #define CAR_HW_H
@@ -20,6 +20,10 @@ void     encoder_zero(void);
 extern float motorPct;
 void     motor_set(float pct);
 void     motor_brake(void);
+
+/* I2C1: put the 7-bit addresses that answer in found[] (up to max).
+ * Returns how many answered, or -1 if the bus is stuck (SDA/SCL held low). */
+int      i2c_scan(uint8_t *found, int max);
 
 #ifdef __cplusplus
 }

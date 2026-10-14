@@ -9,6 +9,7 @@
 
 extern TIM_HandleTypeDef htim1;   /* motor PWM, PA8   */
 extern TIM_HandleTypeDef htim5;   /* encoder, PA0/PA1 */
+extern I2C_HandleTypeDef hi2c1;   /* OLED, PB8/PB9    */
 
 static float clampf_(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
@@ -43,6 +44,19 @@ void motor_brake(void) {
   HAL_GPIO_WritePin(MOTOR_IN1_GPIO_Port, MOTOR_IN1_Pin, GPIO_PIN_SET);
   HAL_GPIO_WritePin(MOTOR_IN2_GPIO_Port, MOTOR_IN2_Pin, GPIO_PIN_SET);
   __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, __HAL_TIM_GET_AUTORELOAD(&htim1) + 1);
+}
+
+/* ------------------------------------------------------------------- I2C */
+/* Address every possible device; one that is there answers with an ACK. */
+int i2c_scan(uint8_t *found, int max) {
+  HAL_I2C_Init(&hi2c1);   /* resets the peripheral: clears a stuck BUSY flag after hot-plugging */
+  int n = 0;
+  for (uint8_t a = 0x08; a < 0x78; a++) {
+    HAL_StatusTypeDef r = HAL_I2C_IsDeviceReady(&hi2c1, (uint16_t)(a << 1), 1, 2);
+    if (r == HAL_BUSY) return -1;
+    if (r == HAL_OK) { if (n < max) found[n] = a; n++; }
+  }
+  return n;
 }
 
 /* ------------------------------------------------------------------ init */

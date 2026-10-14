@@ -10,6 +10,8 @@
  *   PA10 USART1_RX  BT_RX        <- BT module TXD (CN10-33)
  *   PB4  GPIO out   MOTOR_IN2    L298N IN2        (CN10-27)
  *   PB5  GPIO out   MOTOR_IN1    L298N IN1        (CN10-29)
+ *   PB8  I2C1_SCL   I2C_SCL      OLED SCK/SCL     (CN10-3, Arduino D15)
+ *   PB9  I2C1_SDA   I2C_SDA      OLED SDA         (CN10-5, Arduino D14)
  *   PC13 GPIO in    B1           blue user button
  *   PA2/PA3 USART2  ST-LINK virtual COM port (USB), 115200
  * ===================================================================== */
@@ -23,6 +25,11 @@ extern "C" {
 /* ---- direction fixes: flip one if a bring-up test goes the wrong way ---- */
 #define ENCODER_INVERT  0   /* driving forward must INCREASE counts */
 #define MOTOR_INVERT    0   /* "P 30" must drive the car FORWARD    */
+
+/* ---- OLED (car_oled.c): match your module ---- */
+#define OLED_HEIGHT     64  /* 64 = 0.96" 128x64, 32 = 0.91" 128x32             */
+#define OLED_COL_OFFSET 0   /* 0 = SSD1306, 2 = SH1106 (most 1.3" modules)       */
+#define OLED_FLIP       0   /* 1 = rotate 180 degrees if it reads upside down    */
 
 /* ---- calibration ---- */
 extern float COUNTS_PER_METER;

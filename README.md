@@ -54,6 +54,7 @@ too. Most importantly, in generated files only write code between
 | `C 20000` | Set counts per metre |
 | `T 5` | Telemetry at 5 Hz (`T 0` = off) |
 | `G` / `?` | Settings / help |
+| `I` | Scan I2C1, restart the OLED |
 
 ## What the activity adds (not done here)
 
