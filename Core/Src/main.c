@@ -83,10 +83,21 @@ float target_distance_meters = 0.0f;
 /* Information for the cm/s */
 volatile int position = 0;
 int32_t last_pos = 0;
-float current_speed_cm_s = 0.0f;
 float distance_meters = 0.0f;
-const float movement = 1.0f / 1560.0f;
+const float movement = 1.0f / 1035.0f;
 
+/* Variables to have a constant velocity */
+float measured_vel = 0.0f;
+float last_distance = 0.0f;
+float vel_error = 0.0f;
+float error_integral = 0.0f;
+const float Kp = 120.0f;   // Proportional gain (tune to responsiveness)
+const float Ki = 15.0f; // Integral gain (eliminates steady-state error & deadband)
+
+/* Dynamic anti-stall boost variables */
+float boost_duty = 0.0f;
+int32_t last_stall_pos = 0;
+uint32_t last_stall_check = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -106,10 +117,28 @@ static void MX_TIM1_Init(void);
 /* USER CODE BEGIN 0 */
 
 /**
- * @brief Calculates timings and starts a trapezoidal motion profile
+ * @brief Sets direct forward speed in cm/s
+ * @param target_cm_s Speed target (0 to 80 cm/s)
+ */
+void Set_Speed_cm_s(float target_cm_s) {
+	if (target_cm_s <= 0.0f) {
+		__HAL_TIM_SET_COMPARE(&MOTOR_TIMER, TIM_CHANNEL_1, 0);
+		return;
+	}
+	if (target_cm_s > 80.0f)
+		target_cm_s = 80.0f;
+
+	float duty_pct = 52.0f + (target_cm_s / 80.0f) * 38.0f;
+	uint32_t compare_val = (uint32_t) (duty_pct * 144.0f);
+
+	__HAL_TIM_SET_COMPARE(&MOTOR_TIMER, TIM_CHANNEL_1, compare_val);
+}
+
+/**
+ * @brief Initializes distance parameters and launches profile
  * @param dist_m Target distance to drive in meters
  * @param max_speed_pct Cruising speed in percent (e.g., 70.0f)
- * @param ramp_time Ramp-up/down duration in seconds (e.g., 1.0f)
+ * @param ramp_time Ramp-up duration in seconds (e.g., 1.0f)
  */
 void Start_Motion_Profile(float dist_m, float max_speed_pct, float ramp_time) {
 	/* Reset wheel encoder counter to 0 */
@@ -118,47 +147,15 @@ void Start_Motion_Profile(float dist_m, float max_speed_pct, float ramp_time) {
 
 	Sn = max_speed_pct;
 	t1 = ramp_time;
-
-	/* Approximate speed in m/s at nominal duty cycle (calibrate if needed) */
-	float speed_mps = (Sn / 100.0f) * 0.8f;
-
-	/* Minimum distance required to reach full speed and brake */
-	float min_dist = speed_mps * t1;
-
-	if (dist_m < min_dist) {
-		/* Distance too short for cruise phase: triangular profile */
-		t1 = sqrtf(dist_m / (speed_mps / t1));
-		t2 = t1;
-		T = 2.0f * t1;
-	} else {
-		/* Trapezoidal profile: ramp up -> cruise -> ramp down */
-		float t_cruise = (dist_m - min_dist) / speed_mps;
-		t2 = t1 + t_cruise;
-		T = t2 + t1;
-	}
-
 	time_ctl = 0.0f;
+	boost_duty = 0.0f;
+	last_stall_pos = 0;
+	last_stall_check = HAL_GetTick();
 	profile_state = 1;
 
 	/* Set motor direction forward */
 	HAL_GPIO_WritePin(IN1_PORT, IN1_PIN, GPIO_PIN_RESET);
 	HAL_GPIO_WritePin(IN2_PORT, IN2_PIN, GPIO_PIN_SET);
-}
-
-void Set_Speed_cm_s(float target_cm_s) {
-	if (target_cm_s <= 0.0f) {
-		__HAL_TIM_SET_COMPARE(&MOTOR_TIMER, TIM_CHANNEL_1, 0);
-		return;
-	}
-	// Clamp to estimated max speed
-	if (target_cm_s > 80.0f)
-		target_cm_s = 80.0f;
-
-	// Map target_cm_s (0 - 80 cm/s) to actual duty cycle (52% - 90%)
-	float duty_pct = 52.0f + (target_cm_s / 80.0f) * 38.0f;
-	uint32_t compare_val = (uint32_t) (duty_pct * 144.0f);
-
-	__HAL_TIM_SET_COMPARE(&MOTOR_TIMER, TIM_CHANNEL_1, compare_val);
 }
 /* USER CODE END 0 */
 
@@ -233,69 +230,86 @@ int main(void) {
 			distance_meters = (float) position * movement;
 		}
 
-		/* 10 ms periodic loop (100 Hz) */
-		if (HAL_GetTick() - last_profile_tick >= 10) {
+		/* 10 ms Periodic Control Loop (100 Hz) */
+		if (profile_state != 0 && (HAL_GetTick() - last_profile_tick >= 10)) {
 			last_profile_tick = HAL_GetTick();
 
-			/* Compute real-time speed in cm/s */
-			int32_t current_pos = position;
-			int32_t delta_ticks = current_pos - last_pos;
-			last_pos = current_pos;
+			float remaining_dist = target_distance_meters - distance_meters;
 
-			/* 1560 ticks = 1 m = 100 cm -> scale by 100 / 1560 over 0.010s */
-			current_speed_cm_s = fabsf(
-					((float) delta_ticks * (100.0f / 1560.0f)) / 0.010f);
+			/* 1. Stop Offset:
+			 * For runs around 70-120 cm, the car enters decel hotter, so cut slightly earlier (~10-12 cm).
+			 * For runs >= 1.5 m, the car is already crawling smoothly, so cut at 7 cm.
+			 */
+			float stop_margin = 0.07f;
+			if (target_distance_meters < 1.30f) {
+				stop_margin = 0.11f; // 11 cm early cutoff for 50-120 cm runs
+			} else {
+				stop_margin = 0.07f; // 7 cm cutoff for long runs
+			}
 
-			/* Update motion profile every 10 ms (100 Hz loop) */
-			if (profile_state != 0) {
-				time_ctl += 0.010f; // 10 ms time step
+			/* 1. Stop Condition */
+			if (remaining_dist <= stop_margin) {
+				profile_state = 0;
+				boost_duty = 0.0f;
 
-				/* Primary stop condition: Target distance reached */
-				if (distance_meters >= target_distance_meters) {
-					profile_state = 0;
-					SP_Vel = 0.0f;
-					HAL_GPIO_WritePin(IN1_PORT, IN1_PIN, GPIO_PIN_RESET);
-					HAL_GPIO_WritePin(IN2_PORT, IN2_PIN, GPIO_PIN_RESET);
-					__HAL_TIM_SET_COMPARE(&MOTOR_TIMER, TIM_CHANNEL_1, 0);
-				} else {
-					switch (profile_state) {
-					case 1: /* Area 1: Acceleration ramp up */
-						SP_Vel = (time_ctl * Sn) / t1;
-						if (time_ctl >= t1)
-							profile_state = 2;
-						break;
+				/* Dynamic active brake: ground both terminals */
+				HAL_GPIO_WritePin(IN1_PORT, IN1_PIN, GPIO_PIN_RESET);
+				HAL_GPIO_WritePin(IN2_PORT, IN2_PIN, GPIO_PIN_RESET);
+				__HAL_TIM_SET_COMPARE(&MOTOR_TIMER, TIM_CHANNEL_1, 0);
+			} else {
+				/* 2. Anti-Stall Detector: run every 50 ms */
+				if (HAL_GetTick() - last_stall_check >= 50) {
+					last_stall_check = HAL_GetTick();
+					int32_t current_p = position;
+					int32_t delta =
+							(current_p >= last_stall_pos) ?
+									(current_p - last_stall_pos) :
+									(last_stall_pos - current_p);
+					last_stall_pos = current_p;
 
-					case 2: /* Area 2: Constant cruising speed */
-						SP_Vel = Sn;
-						if (time_ctl >= t2)
-							profile_state = 3;
-						break;
-
-					case 3: /* Area 3: Deceleration ramp down */
-						SP_Vel = Sn * (T - time_ctl) / (T - t2);
-						/* Keep minimum crawl speed to avoid stalling before reaching target */
-						if (SP_Vel < 15.0f)
-							SP_Vel = 15.0f;
-						break;
-
-					default:
-						profile_state = 0;
-						break;
+					if (delta < 2) {
+						boost_duty += 1.5f;
+						if (boost_duty > 35.0f)
+							boost_duty = 35.0f;
+					} else {
+						if (boost_duty > 0.0f)
+							boost_duty -= 0.5f;
 					}
-
-					/* Apply PWM with deadband floor compensation */
-					uint32_t compare_val = 0;
-					if (profile_state != 0 && SP_Vel > 5.0f) {
-						/* Maps SP_Vel (0..100%) to actual duty cycle (52%..90%) */
-						float actual_pct = 52.0f + (SP_Vel / 100.0f) * 38.0f;
-						compare_val = (uint32_t) (actual_pct * 144.0f);
-					}
-
-					if (compare_val > 14400)
-						compare_val = 14400;
-					__HAL_TIM_SET_COMPARE(&MOTOR_TIMER, TIM_CHANNEL_1,
-							compare_val);
 				}
+
+				float base_duty = 0.0f;
+
+				/* 3. Wider Deceleration Window: 35 cm instead of 20 cm */
+				const float decel_window = 0.35f;
+
+				if (remaining_dist < decel_window) {
+					/* Taper smoothly down to the base crawl floor (50%) */
+					base_duty = 50.0f
+							+ (remaining_dist / decel_window) * (Sn - 50.0f);
+					if (base_duty < 50.0f)
+						base_duty = 50.0f;
+				}
+				/* 4. Acceleration Phase: ramp up over t1 (1.0 s) */
+				else if (time_ctl < t1) {
+					time_ctl += 0.010f;
+					base_duty = 50.0f + (time_ctl / t1) * (Sn - 50.0f);
+				}
+				/* 5. Cruising Phase */
+				else {
+					base_duty = Sn; // 70%
+				}
+
+				/* Add adaptive stall boost */
+				float total_duty = base_duty + boost_duty;
+				if (total_duty > 95.0f)
+					total_duty = 95.0f;
+
+				/* Output PWM to motor */
+				uint32_t compare_val = (uint32_t) (total_duty * 144.0f);
+				if (compare_val > 14400)
+					compare_val = 14400;
+
+				__HAL_TIM_SET_COMPARE(&MOTOR_TIMER, TIM_CHANNEL_1, compare_val);
 			}
 		} /* End of 10 ms profile update block */
 
@@ -303,14 +317,18 @@ int main(void) {
 		if (command_ready) {
 			command_ready = 0;
 
-			/* Distance command: e.g. "d1.2" or "D2.5" */
+			/* Distance command */
 			if (rx_buffer[0] == 'd' || rx_buffer[0] == 'D') {
 				float desired_D = atof(&rx_buffer[1]);
 				if (desired_D > 0.0f) {
+					position = 0;
+					distance_meters = 0.0f;
+					last_stall_pos = 0;
+					boost_duty = 0.0f;
 					Start_Motion_Profile(desired_D, 70.0f, 1.0f);
 				}
 			} else if (rx_buffer[0] == 'v' || rx_buffer[0] == 'V') {
-				/* Velocity command in cm/s: e.g., "v40" */
+				/* Velocity command in cm/s */
 				float target_v = atof(&rx_buffer[1]);
 				profile_state = 0;
 				HAL_GPIO_WritePin(IN1_PORT, IN1_PIN, GPIO_PIN_RESET);
@@ -334,6 +352,7 @@ int main(void) {
 			{
 				profile_state = 0;
 				SP_Vel = 0.0f;
+				error_integral = 0.0f;
 				HAL_GPIO_WritePin(IN1_PORT, IN1_PIN, GPIO_PIN_RESET);
 				HAL_GPIO_WritePin(IN2_PORT, IN2_PIN, GPIO_PIN_RESET);
 				__HAL_TIM_SET_COMPARE(&MOTOR_TIMER, TIM_CHANNEL_1, 0);
@@ -363,6 +382,7 @@ int main(void) {
 		__HAL_UART_CLEAR_OREFLAG(&huart1);
 
 		/* USER CODE END WHILE */
+
 		/* USER CODE BEGIN 3 */
 	}
 	/* USER CODE END 3 */
