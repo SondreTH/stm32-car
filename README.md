@@ -60,8 +60,8 @@ In generated files, only write code between `USER CODE BEGIN` and
 
 Power the OLED from 3.3 V (VDD/VCC) and GND.
 
-The sonar pins are set up but no code reads the sonar yet. The MPU-6050
-(PC1 SCL, PC0 SDA) is wired but not used: PC0/PC1 have no hardware I2C.
+The MPU-6050 (PC1 SCL, PC0 SDA) is wired but not used: PC0/PC1 have no
+hardware I2C.
 
 ## Commands (USB 115200 / Bluetooth 9600, line ending LF)
 
@@ -70,7 +70,10 @@ Each command is one letter, followed by an optional number. `d1.2` and
 
 | Command | Does |
 |---|---|
-| `d1.2` | Distance run of 1.2 m: 18 cm/s, 2 s ramps, PID |
+| `d1.2` | Distance run of 1.2 m: 18 cm/s, 2 s ramps, PID. With `tt` set: in that time |
+| `tt 8` | Run time 8 s (`tt 0` = back to 18 cm/s) |
+| `ta 2` / `td 2` | Acceleration / deceleration time in s |
+| `kp 3` / `ki 2` / `kd 0` | PID gains |
 | `v18` | Constant speed in cm/s, open loop |
 | `f` / `b` | Forward / back at 60 % |
 | `1`…`6` | 50…100 %, same direction (only while moving) |
@@ -90,6 +93,38 @@ The car does a 1 m run 1 s later. Any other drive command cancels it.
 **CubeMonitor.** Write a distance in metres to `test_dist_m` to start a run.
 You can also tune `Kp`, `Ki` and `Kd` live.
 
+## Activity 2.6: position control, timer interrupt, obstacle stop
+
+What this activity added on top of the code above:
+
+- **Timer interrupt (TIM3).** The 100 ms control step now runs in
+  `HAL_TIM_PeriodElapsedCallback()` (`main.c`, USER CODE 4) instead of
+  being polled in the main loop. TIM3 has PSC 839 and ARR 9999, so
+  F = 84 MHz / ((839+1) × (9999+1)) = 10 Hz, a 100 ms period. It starts with
+  `HAL_TIM_Base_Start_IT(&htim3)` in USER CODE 2.
+- **Position loop.** The area under the speed profile so far is the
+  reference position `Pos_Ref`. The PID now works on `Pos_Ref − Real_Dist`
+  (encoder distance) instead of on the speed. `SP_Vel` is still added as
+  feed-forward. `Kp`/`Ki`/`Kd` are starting values for the MATLAB tuning.
+- **Distance in a set time.** With `tt` > 0, `d` covers the distance in
+  exactly `tt` seconds with ramps `ta` and `td`:
+  Sn = D / (T − (ta + td)/2). The car refuses runs that need more than
+  80 cm/s or where tt < ta + td.
+- **Obstacle stop (HC-SR04).** TRIG gets a 10 µs pulse every step. ECHO
+  (PA7) has an EXTI interrupt on both edges, timed with TIM3's 10 µs
+  counter: distance = echo µs / 58. Two readings under 30 cm in a row brake
+  the car and freeze the profile clock and `Pos_Ref`. The run continues
+  once the reading is over 35 cm.
+- **OLED.** The top-right corner shows the sonar distance instead of the
+  uptime, and the status line shows `OBSTACLE` while paused.
+- **Telemetry** (`T 10`) has two new columns at the end: `ref_cm`, `sonar_cm`.
+- **CubeMonitor:** also watch `Pos_Ref`, `sonarCm` and `obstacle`; set
+  `run_T`, `run_ta`, `run_td`.
+
+The `.ioc` changes (TIM3 with its global interrupt, PA7 as `GPIO_EXTI7`,
+EXTI line[9:5] interrupt) are in `stm32-car.ioc`, so the configuration
+screens can be shown in CubeIDE.
+
 ## Settings
 
 Every tunable number is in `Core/Inc/car_config.h`, apart from the PID
@@ -99,7 +134,8 @@ Hakon's tuning on the car:
 - 1035 counts per metre;
 - servo 600 / 1100 / 1500 µs for left / straight / right;
 - motor offset 45 % plus 0.59 % per cm/s;
-- Kp 3, Ki 2, Kd 0.
+- Kp 3, Ki 2, Kd 0 (tuned for the old speed loop; now only starting
+  values for the position loop).
 
 ## Changes compared with Hakon's `main.c`
 

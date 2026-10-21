@@ -1,7 +1,7 @@
 /* =====================================================================
  * car_hw.h - hardware layer on top of the CubeMX-generated HAL setup
  *   encoder (TIM5), motor (TIM1 PWM + IN1/IN2 GPIO), steering servo (TIM2),
- *   battery voltage (ADC1), start buttons, I2C1 bus scan
+ *   battery voltage (ADC1), start buttons, I2C1 bus scan, HC-SR04 sonar
  * ===================================================================== */
 #ifndef CAR_HW_H
 #define CAR_HW_H
@@ -26,6 +26,12 @@ void     motor_brake(void);
 /* steering servo: pulse width in microseconds (SERVO_PULSE_* in car_config.h) */
 extern uint32_t servoUs;
 void     servo_set_us(uint32_t us);
+
+/* HC-SR04: sonar_trigger() starts a measurement (every control step),
+ * sonar_echo_edge() runs on each edge of ECHO (PA7 EXTI). */
+extern volatile float sonarCm;      /* last distance, SONAR_MAX_CM = nothing */
+void     sonar_trigger(void);
+void     sonar_echo_edge(void);
 
 float    battery_volts(void);        /* battery voltage from the PA4 divider */
 bool     start_pressed(void);        /* blue button B1 or the start button on PB0 */

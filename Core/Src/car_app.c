@@ -4,6 +4,8 @@
  * Commands work on the USB virtual COM port (115200) and Bluetooth (9600).
  * One letter, then an optional number ("d1.2" and "D 1.2" are the same):
  *   d <m>     distance run: speed profile + PID (car_drive.c)
+ *   tt <s>    run time (0 = nominal speed)  ta / td <s>  accel / decel time
+ *   kp ki kd <gain>  PID gains
  *   v <cm/s>  constant speed, open loop    s   stop (coast)
  *   f / b     forward / back at 60 %       1..6  50..100 %, same direction
  *   l c r     steer left / centre / right
@@ -13,7 +15,8 @@
  *   I         I2C scan + restart the OLED  ?   help
  * B1 or the start button (PB0) starts a 1 m run after 1 s.
  *
- * The OLED (I2C1, car_oled.c) shows the run, speed, motor % and battery at 5 Hz.
+ * The OLED (I2C1, car_oled.c) shows the run, speed, motor %, battery and
+ * sonar distance at 5 Hz.
  * ===================================================================== */
 #include "main.h"
 #include "car_app.h"
@@ -40,6 +43,8 @@ static void print_help(void) {
   say("P <pct>   open-loop motor -100..100   X  stop + brake   Z  zero encoder");
   say("M <cpm>   counts per metre            T <hz>  telemetry (0 = off)");
   say("G         settings   I  I2C scan, restart the OLED   ?  help");
+  say("tt <s>    run time, 0 = nominal speed  ta <s> / td <s>  accel / decel time");
+  say("kp ki kd <gain>  PID gains, e.g. kp 3");
   lb_clear(); lb_str("B1 / start button: "); lb_float(BUTTON_RUN_M, 2); lb_str(" m run after ");
   lb_float(BUTTON_DELAY_MS / 1000.0f, 1); lb_str(" s"); lb_send(false);
 }
@@ -47,13 +52,15 @@ static void print_help(void) {
 static void print_settings(void) {
   lb_clear(); lb_str("CPM="); lb_float(COUNTS_PER_METER, 1);
   lb_str(" Kp="); lb_float(Kp, 2); lb_str(" Ki="); lb_float(Ki, 2); lb_str(" Kd="); lb_float(Kd, 2);
+  lb_str(" tt="); lb_float(run_T, 1); lb_str(" ta="); lb_float(run_ta, 1); lb_str(" td="); lb_float(run_td, 1);
+  lb_str(" sonar="); lb_float(sonarCm, 0); lb_str("cm");
   lb_str(" batt="); lb_float(battery_volts(), 2); lb_str("V");
   lb_str(" counts="); lb_int(encoder_count());
   lb_send(false);
 }
 
 static void telemetry_header(void) {
-  say("t_ms,state,sp_cms,speed_cms,dist_cm,counts,motor_pct");
+  say("t_ms,state,sp_cms,speed_cms,dist_cm,counts,motor_pct,ref_cm,sonar_cm");
 }
 
 static void telemetry_send(void) {
@@ -64,7 +71,9 @@ static void telemetry_send(void) {
   lb_float(AverageSpeed, 2);   lb_str(",");
   lb_float(Real_Dist, 1);      lb_str(",");
   lb_int(encoder_count());     lb_str(",");
-  lb_float(motorPct, 1);
+  lb_float(motorPct, 1);       lb_str(",");
+  lb_float(Pos_Ref, 1);        lb_str(",");
+  lb_float(sonarCm, 0);
   lb_send(true);
 }
 
@@ -86,8 +95,8 @@ static void oled_draw_status(void) {
   oled_text(0, 3, "Ninjago", 1);
   int x = oled_float(54, 3, battery_volts(), 1, 1);
   oled_text(x, 3, "V", 1);
-  x = oled_int(92, 3, (int32_t)(HAL_GetTick() / 1000), 1);
-  oled_text(x, 3, "s", 1);
+  x = oled_int(92, 3, (int32_t)sonarCm, 1);
+  oled_text(x, 3, "cm", 1);
   oled_fill(0, 13, OLED_WIDTH, 1, true);
 
   /* what the car is doing, and the distance of the run */
@@ -95,7 +104,8 @@ static void oled_draw_status(void) {
     x = oled_text(0, 18, "GO IN ", 1);
     x = oled_float(x, 18, (int32_t)(BUTTON_DELAY_MS - (HAL_GetTick() - armedMs)) / 1000.0f, 1, 1);
     oled_text(x, 18, "s", 1);
-  } else if (state >= 1 && state <= 3) oled_text(0, 18, phase[state], 1);
+  } else if (state != 0 && obstacle) oled_text(0, 18, "OBSTACLE", 1);
+  else if (state >= 1 && state <= 3) oled_text(0, 18, phase[state], 1);
   else oled_text(0, 18, motorPct != 0 ? "MANUAL" : phase[0], 1);
   if (armed || state != 0) {
     x = oled_float(72, 18, armed ? BUTTON_RUN_M : target_dist_cm / 100.0f, 2, 1);
@@ -146,7 +156,7 @@ static void button_poll(void) {
   btnWas = b;
   if (armed && HAL_GetTick() - armedMs >= BUTTON_DELAY_MS) {
     armed = false;
-    Start_Motion_Profile(BUTTON_RUN_M, DRIVE_SPEED_CMS, DRIVE_RAMP_S);
+    if (!drive_start(BUTTON_RUN_M)) say("ERR run does not fit: check tt, ta, td");
   }
 }
 
@@ -159,12 +169,31 @@ static void handle_command(char *line) {
   char c = (char)toupper((unsigned char)line[0]);
   float a1 = strtof(line + 1, NULL);   /* 0 when no number follows */
 
+  /* two-letter settings: tt/ta/td (run times) and kp/ki/kd (PID gains) */
+  char c2 = (char)tolower((unsigned char)line[1]);
+  float a2 = c2 ? strtof(line + 2, NULL) : 0;
+  if (c == 'T' && (c2 == 't' || c2 == 'a' || c2 == 'd')) {
+    if (a2 < 0) { say("ERR time in seconds"); return; }
+    if (c2 == 't') run_T = a2; else if (c2 == 'a') run_ta = a2; else run_td = a2;
+    print_settings();
+    return;
+  }
+  if (c == 'K' && (c2 == 'p' || c2 == 'i' || c2 == 'd')) {
+    if (c2 == 'p') Kp = a2; else if (c2 == 'i') Ki = a2; else Kd = a2;
+    print_settings();
+    return;
+  }
+
   if (c == 'D') {
     if (a1 > 0.01f) {
       armed = false;
-      Start_Motion_Profile(a1, DRIVE_SPEED_CMS, DRIVE_RAMP_S);
-      lb_clear(); lb_str("OK run "); lb_float(a1, 2); lb_str(" m in "); lb_float(T, 1); lb_str(" s");
-      lb_send(false);
+      if (drive_start(a1)) {
+        lb_clear(); lb_str("OK run "); lb_float(a1, 2); lb_str(" m in "); lb_float(T, 1); lb_str(" s at ");
+        lb_float(Sn, 1); lb_str(" cm/s"); lb_send(false);
+      } else {
+        lb_clear(); lb_str("ERR does not fit: need tt >= ta + td and speed <= "); lb_float(DRIVE_MAX_CMS, 0);
+        lb_str(" cm/s"); lb_send(false);
+      }
     } else say("ERR distance in metres, e.g. d1.2");
   }
   else if (c == 'V') { manual(); Set_Speed_cm_s(a1); say("OK speed (open loop)"); }
@@ -206,9 +235,12 @@ void App_Init(void) {
 void App_Loop(void) {
   comms_poll(handle_command);
   button_poll();
-  /* the OLED write takes ~25 ms: do it right after a 100 ms control step,
-   * every second one, so it never delays the next step */
-  if (drive_update() && oledOn && ++oledSteps >= 2) {
+  /* the control step runs in the TIM3 interrupt; redraw the OLED (~25 ms)
+   * after every second step */
+  static uint32_t lastStep = 0;
+  bool stepped = (driveSteps != lastStep);
+  lastStep = driveSteps;
+  if (stepped && oledOn && ++oledSteps >= 2) {
     oledSteps = 0;
     oled_draw_status();
     if (!oled_update()) { oledOn = false; say("OLED lost: check wiring, then type I"); }

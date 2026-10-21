@@ -7,7 +7,7 @@
  *   PA4  ADC1_IN4   BATT_SENSE   battery divider  (CN7-32)
  *   PA5  GPIO out   LD2          green LED: blinks every 100 ms step of a run
  *                                and on every Bluetooth byte
- *   PA7  GPIO in    SONAR_ECHO   HC-SR04 ECHO     (CN10-15, via 1k/2k divider)
+ *   PA7  EXTI7      SONAR_ECHO   HC-SR04 ECHO     (CN10-15, via 1k/2k divider)
  *   PA8  TIM1_CH1   MOTOR_ENA    L298N ENA PWM    (CN10-23)
  *   PA9  USART1_TX  BT_TX        -> BT module RXD (CN10-21)
  *   PA10 USART1_RX  BT_RX        <- BT module TXD (CN10-33), pull-up
@@ -20,8 +20,9 @@
  *   PB10 TIM2_CH3   SERVO_PWM    servo signal     (CN10-25)
  *   PC13 GPIO in    B1           blue user button
  *   PA2/PA3 USART2  ST-LINK virtual COM port (USB), 115200
- * The sonar pins are set up but not used yet. The MPU-6050 (PC1 SCL,
- * PC0 SDA) is wired but not set up: those pins have no hardware I2C.
+ *   TIM3 (no pin)                control loop interrupt every 100 ms
+ * The MPU-6050 (PC1 SCL, PC0 SDA) is wired but not set up: those pins
+ * have no hardware I2C.
  * ===================================================================== */
 #ifndef CAR_CONFIG_H
 #define CAR_CONFIG_H
@@ -45,11 +46,19 @@ extern "C" {
 #define SERVO_PULSE_MAX    1500   /* us, full right */
 
 /* ---- distance run (car_drive.c). PID gains are Kp/Ki/Kd in car_drive.c ---- */
-#define DRIVE_PERIOD_MS   100     /* speed profile + PID step (M2.9 slide 20)  */
+#define DRIVE_PERIOD_MS   100     /* speed profile + PID step (M2.9 slide 20).
+                                     Must match TIM3: 84 MHz / ((839+1) * (9999+1)) = 10 Hz */
 #define DRIVE_SPEED_CMS   18.0f   /* nominal speed Sn                          */
 #define DRIVE_RAMP_S      2.0f    /* acceleration time = deceleration time     */
 #define BUTTON_RUN_M      1.0f    /* B1 / start button: drive this far ...     */
 #define BUTTON_DELAY_MS   1000    /* ... after this long, to let go of the car */
+#define DRIVE_MAX_CMS     80.0f   /* timed run: refuse if it needs a faster Sn */
+
+/* ---- obstacle stop (HC-SR04) ---- */
+#define SONAR_TICK_US     10      /* one TIM3 count = (839+1) / 84 MHz = 10 us  */
+#define SONAR_MAX_CM      400.0f  /* no echo = nothing in range                 */
+#define OBST_STOP_CM      30.0f   /* closer than this: brake and pause the run  */
+#define OBST_CLEAR_CM     35.0f   /* further than this: continue the run        */
 
 /* motor % for a speed in cm/s: an offset that gets the car moving, plus a slope.
  * Tuned on the car as 6500 + 85 per cm/s out of a 14400-count PWM period. */

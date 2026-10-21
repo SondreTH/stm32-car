@@ -9,6 +9,7 @@
 
 extern TIM_HandleTypeDef htim1;   /* motor PWM, PA8   */
 extern TIM_HandleTypeDef htim2;   /* servo PWM, PB10  */
+extern TIM_HandleTypeDef htim3;   /* control loop, 10 us counter for the sonar */
 extern TIM_HandleTypeDef htim5;   /* encoder, PA0/PA1 */
 extern ADC_HandleTypeDef hadc1;   /* battery, PA4     */
 extern I2C_HandleTypeDef hi2c1;   /* OLED, PB8/PB9    */
@@ -88,6 +89,39 @@ int i2c_scan(uint8_t *found, int max) {
     if (r == HAL_OK) { if (n < max) found[n] = a; n++; }
   }
   return n;
+}
+
+/* --------------------------------------------------------------- HC-SR04 */
+/* TRIG (PB6): a 10 us pulse starts a measurement. ECHO (PA7) is then high
+ * for 58 us per cm of distance. Both ECHO edges are timed with TIM3's counter,
+ * which counts every 10 us and wraps every 100 ms. */
+volatile float sonarCm = SONAR_MAX_CM;
+static volatile uint32_t echoStart;
+static volatile bool     echoHigh = false, echoDone = true;
+
+void sonar_trigger(void) {
+  if (!echoDone) sonarCm = SONAR_MAX_CM;   /* last echo never came back: nothing in range */
+  echoDone = false;
+  uint32_t period = __HAL_TIM_GET_AUTORELOAD(&htim3) + 1;
+  uint32_t t0 = __HAL_TIM_GET_COUNTER(&htim3);
+  HAL_GPIO_WritePin(SONAR_TRIG_GPIO_Port, SONAR_TRIG_Pin, GPIO_PIN_SET);
+  while ((__HAL_TIM_GET_COUNTER(&htim3) + period - t0) % period < 2) {}   /* >= 10 us */
+  HAL_GPIO_WritePin(SONAR_TRIG_GPIO_Port, SONAR_TRIG_Pin, GPIO_PIN_RESET);
+}
+
+void sonar_echo_edge(void) {
+  uint32_t now = __HAL_TIM_GET_COUNTER(&htim3);
+  if (HAL_GPIO_ReadPin(SONAR_ECHO_GPIO_Port, SONAR_ECHO_Pin) == GPIO_PIN_SET) {
+    echoStart = now;
+    echoHigh = true;
+  } else if (echoHigh) {
+    uint32_t period = __HAL_TIM_GET_AUTORELOAD(&htim3) + 1;
+    uint32_t us = ((now + period - echoStart) % period) * SONAR_TICK_US;
+    float cm = us / 58.0f;
+    sonarCm = (cm > SONAR_MAX_CM) ? SONAR_MAX_CM : cm;
+    echoHigh = false;
+    echoDone = true;
+  }
 }
 
 /* ------------------------------------------------------------------ init */

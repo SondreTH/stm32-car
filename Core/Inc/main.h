@@ -66,6 +66,7 @@ void Error_Handler(void);
 #define LD2_GPIO_Port GPIOA
 #define SONAR_ECHO_Pin GPIO_PIN_7
 #define SONAR_ECHO_GPIO_Port GPIOA
+#define SONAR_ECHO_EXTI_IRQn EXTI9_5_IRQn
 #define START_BTN_Pin GPIO_PIN_0
 #define START_BTN_GPIO_Port GPIOB
 #define SERVO_PWM_Pin GPIO_PIN_10
