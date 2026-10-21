@@ -57,7 +57,7 @@ TIM_HandleTypeDef htim5;
 UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
-/* USER CODE BEGIN PV */
+
 /* USER CODE BEGIN PV */
 extern UART_HandleTypeDef huart1;
 uint8_t rx_data = 0;
@@ -99,6 +99,9 @@ float ErrorRate = 0.0f;
 float Kp = 3.0f;
 float Ki = 2.0f;
 float Kd = 0.0f;
+
+/* Dunction to enter distance with computer */
+volatile float test_dist_m = 0.0f;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -309,6 +312,13 @@ int main(void) {
 
 		/* Real traveled distance in cm */
 		Real_Dist = (float) position / ticks_per_cm;
+
+		/*Enter info yourself to get it to drive */
+		if (test_dist_m > 0.01f) {
+		    float d = test_dist_m;
+		    test_dist_m = 0.0f; // Reset trigger
+		    Start_Motion_Profile(d, 18.0f, 2.0f);
+		}
 
 		/* Execute Speed Profile & PID every 100 ms (0.1 sec), per M2.9 Slide 20 & 23 */
 		uint32_t currentTime = HAL_GetTick();
