@@ -157,3 +157,21 @@ int oled_int(int x, int y, int32_t v, int scale) {
   if (v < 0) t[--n] = '-';
   return oled_text(x, y, &t[n], scale);
 }
+
+/* fixed number of decimals, rounded */
+int oled_float(int x, int y, float v, int decimals, int scale) {
+  int32_t m = 1;
+  for (int i = 0; i < decimals; i++) m *= 10;
+  float s = v * (float)m;
+  if (s > 2.0e9f || s < -2.0e9f) return oled_text(x, y, "ovf", scale);
+  int32_t f = (int32_t)(s + (s < 0 ? -0.5f : 0.5f));
+  if (f < 0) { x = oled_text(x, y, "-", scale); f = -f; }
+  x = oled_int(x, y, f / m, scale);
+  if (decimals < 1) return x;
+  char t[12];
+  int n = 0;
+  t[n++] = '.';
+  for (int32_t d = m / 10; d > 0 && n < (int)sizeof t - 1; d /= 10) t[n++] = (char)('0' + (f / d) % 10);
+  t[n] = 0;
+  return oled_text(x, y, t, scale);
+}

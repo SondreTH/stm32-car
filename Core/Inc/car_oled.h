@@ -29,6 +29,7 @@ void oled_frame(int x, int y, int w, int h);           /* rectangle outline */
  * Background pixels are drawn too. Returns the x just after the text. */
 int  oled_text(int x, int y, const char *s, int scale);
 int  oled_int(int x, int y, int32_t v, int scale);
+int  oled_float(int x, int y, float v, int decimals, int scale);
 
 #ifdef __cplusplus
 }

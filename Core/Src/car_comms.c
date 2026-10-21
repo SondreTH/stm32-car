@@ -65,6 +65,7 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *h) {
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *h) {
   Port *p = port_of(h); if (!p) return;
+  if (h == &huart1) HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);   /* blink on every Bluetooth byte: the link works */
   uint16_t next = (uint16_t)((p->rxHead + 1) & (RXQ - 1));
   if (next != p->rxTail) { p->rx[p->rxHead] = p->rxByte; p->rxHead = next; }
   HAL_UART_Receive_IT(h, &p->rxByte, 1);
