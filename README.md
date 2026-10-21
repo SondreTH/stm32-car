@@ -1,12 +1,26 @@
-# Team 7 (Ninjago) car: OLED + distance runs
+# Team 7 (Ninjago) car: Activity 2.6
 
-This branch, `oled`, is the most up-to-date car firmware. It combines:
+This branch, `oled-timer-pid-timed-obstacle-bluetooth`, is the `oled` branch
+plus everything Activity 2.6 (position and speed control loop) asks for:
+
+- **Time interrupt:** the 100 ms control step runs in the TIM3 interrupt.
+- **Position PID:** the PID follows the reference position from the
+  trapezoidal speed profile, measured with the encoder.
+- **Distance in a set time:** you choose distance, total time and the
+  acceleration and deceleration times.
+- **Obstacle stop:** the HC-SR04 stops the car under 30 cm, and the car
+  continues once the obstacle is gone.
+- **Bluetooth:** distance, times and PID gains can be changed from the phone.
+
+The details are in
+[Activity 2.6: what was added](#activity-26-position-control-timer-interrupt-obstacle-stop)
+below. Everything from `oled` is still here:
 
 - **The OLED display** (from `activity2.6`) on I2C1, showing the run,
   speed, motor % and battery voltage at 5 Hz.
 - **Hakon's car code** (from `hakon-backup`, the `Hakons_leg` project):
   - distance runs with a trapezoidal speed profile (M2.9) and a PID speed
-    loop (M2.10);
+    loop (M2.10), which this branch turns into a position loop;
   - the Bluetooth commands;
   - the steering servo;
   - the start buttons.
@@ -30,7 +44,7 @@ Then, in your `stm32-car` folder:
 2. Run:
    ```
    git fetch
-   git switch oled
+   git switch oled-timer-pid-timed-obstacle-bluetooth
    ```
 3. In CubeIDE, right-click `stm32-car` and choose **Refresh** (F5).
 4. Go to **Project → Clean…**, select `stm32-car`, then click **Clean**.
@@ -95,7 +109,7 @@ You can also tune `Kp`, `Ki` and `Kd` live.
 
 ## Activity 2.6: position control, timer interrupt, obstacle stop
 
-What this activity added on top of the code above:
+What this branch adds on top of `oled`:
 
 - **Timer interrupt (TIM3).** The 100 ms control step now runs in
   `HAL_TIM_PeriodElapsedCallback()` (`main.c`, USER CODE 4) instead of
@@ -147,6 +161,21 @@ Hakon's tuning on the car:
 - **The clock is 84 MHz instead of 72 MHz.** The timer settings are
   scaled to match, so PWM, servo and timing are unchanged.
 - **USB serial runs at 115200** (Bluetooth is still 9600).
+
+## Example: Activity 2.6 run over Bluetooth
+
+```
+tt 8      run time 8 s
+ta 2      2 s to accelerate
+td 2      2 s to slow down
+kp 3      PID gains (use the MATLAB values)
+ki 2
+T 10      telemetry every 100 ms (for comparing with Simulink)
+d1        drive 1 m: the reply shows the time and the cruise speed Sn
+```
+
+Put a hand closer than 30 cm in front of the sonar during the run. The car
+brakes and the OLED shows `OBSTACLE`. Take the hand away and the run continues.
 
 ## Check after flashing
 
