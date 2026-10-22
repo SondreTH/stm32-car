@@ -80,7 +80,7 @@ int state = 0; // 0 = Off, 1 = Area 1 (Accel), 2 = Area 2 (Cruise), 3 = Area 3 (
 /* Encoder & Distance Measurement Variables */
 volatile int32_t position = 0;
 int32_t last_pos = 0;
-const float ticks_per_cm = 10.35f; // 1035 ticks per meter = 10.35 ticks per cm
+const float ticks_per_cm = 11.7f; // 1170 ticks per meter = 11.70 ticks per cm
 volatile float Real_Dist = 0.0f;            // Traveled distance in cm
 float target_dist_cm = 0.0f;       // Target distance in cm
 volatile float Speed_CM_SEC = 0.0f;         // Raw speed in cm/s
@@ -95,9 +95,9 @@ float ErrorAcum = 0.0f;
 float ErrorRate = 0.0f;
 
 /* Gains (tuned in cm/s domain) - declared volatile for CubeMonitor tuning */
-volatile float Kp = 3.0f;
-volatile float Ki = 2.0f;
-volatile float Kd = 0.0f;
+volatile float Kp = 3.8f;
+volatile float Ki = 2.5f;
+volatile float Kd = 0.05f;
 
 /* Function to enter distance with computer (CubeMonitor trigger) */
 volatile float test_dist_m = 0.0f;
@@ -182,10 +182,10 @@ float ControlPID(float setpoint, float input, float dt) {
 	ErrorAcum = ErrorAcum + (error * dt);
 
 	/* Anti-windup limit on integral term (tightened to prevent overshoot) */
-	if (ErrorAcum > 15.0f)
-		ErrorAcum = 15.0f;
-	if (ErrorAcum < -15.0f)
-		ErrorAcum = -15.0f;
+	if (ErrorAcum > 25.0f)
+		ErrorAcum = 25.0f;
+	if (ErrorAcum < -25.0f)
+		ErrorAcum = -25.0f;
 
 	/* 3. Obtain derivative error: ErrorRate */
 	if (dt > 0.0f) {
@@ -219,8 +219,8 @@ void Apply_Motor_PWM(float control_cm_s) {
 	HAL_GPIO_WritePin(IN2_PORT, IN2_PIN, GPIO_PIN_SET);
 
 	/* Lower base offset (~45% duty) so PID can control slow 18 cm/s speeds */
-	const float min_pwm_offset = 6500.0f;
-	const float pwm_per_cm_s = 85.0f;
+	const float min_pwm_offset = 7200.0f;
+	const float pwm_per_cm_s = 80.0f;
 
 	float cv_pwm = min_pwm_offset + (control_cm_s * pwm_per_cm_s);
 
