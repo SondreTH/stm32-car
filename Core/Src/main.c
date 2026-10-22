@@ -15,6 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include "ultrasonic.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -101,6 +102,9 @@ volatile float Kd = 0.05f;
 
 /* Function to enter distance with computer (CubeMonitor trigger) */
 volatile float test_dist_m = 0.0f;
+
+/* Stop 30 cm before hitting anything */
+uint32_t last_sonar_tick = 0;
 
 /* USER CODE END PV */
 
@@ -281,6 +285,9 @@ int main(void) {
 	MX_I2C1_Init();
 	MX_TIM1_Init();
 	/* USER CODE BEGIN 2 */
+	/*Code including ultrasonic */
+	Ultrasonic_Init();
+
 	/* Ensure motor is stopped on startup */
 	HAL_GPIO_WritePin(IN1_PORT, IN1_PIN, GPIO_PIN_RESET);
 	HAL_GPIO_WritePin(IN2_PORT, IN2_PIN, GPIO_PIN_RESET);
@@ -318,6 +325,12 @@ int main(void) {
 	previousTime = HAL_GetTick();
 
 	while (1) {
+		/* Trigger sensor every 60 ms */
+		      uint32_t now = HAL_GetTick();
+		      if (now - last_sonar_tick >= 60) {
+		          last_sonar_tick = now;
+		          Ultrasonic_Trigger();
+		      }
 		/* Read wheel encoder ticks from TIM5 */
 		int32_t raw_cnt = (int32_t) __HAL_TIM_GET_COUNTER(&ENCODER_TIMER);
 		position = (raw_cnt < 0) ? -raw_cnt : raw_cnt;
@@ -338,6 +351,14 @@ int main(void) {
 			HAL_Delay(400); // Debounce to allow finger release
 			Start_Motion_Profile(1.0f, 18.0f, 2.0f);
 		}
+
+		/* Emergency stop if obstacle <= 30 cm */
+		      if (state != 0 && Ultrasonic_GetDistance() <= 30.0f && Ultrasonic_GetDistance() > 2.0f) {
+		          state = 0;             // Cancel profile
+		          SP_Vel = 0.0f;
+		          ErrorAcum = 0.0f;
+		          Apply_Motor_PWM(0.0f); // Active brake
+		      }
 
 		/* Execute Speed Profile & PI Controller every 100 ms (0.1 sec) */
 		uint32_t currentTime = HAL_GetTick();
@@ -877,7 +898,7 @@ static void MX_GPIO_Init(void) {
 
 	/*Configure GPIO pin : Sonar_ECHO_Pin */
 	GPIO_InitStruct.Pin = Sonar_ECHO_Pin;
-	GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+	GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
 	GPIO_InitStruct.Pull = GPIO_NOPULL;
 	HAL_GPIO_Init(Sonar_ECHO_GPIO_Port, &GPIO_InitStruct);
 
@@ -906,6 +927,10 @@ static void MX_GPIO_Init(void) {
 }
 
 /* USER CODE BEGIN 4 */
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+    Ultrasonic_EXTI_Callback(GPIO_Pin);  // <--- Passes the echo pulse to ultrasonic.c
+}
+
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 	if (huart->Instance == USART1) {
 		/* DIAGNOSTIC: Toggle the on-board green LED on ANY byte received */
