@@ -326,11 +326,11 @@ int main(void) {
 
 	while (1) {
 		/* Trigger sensor every 60 ms */
-		      uint32_t now = HAL_GetTick();
-		      if (now - last_sonar_tick >= 60) {
-		          last_sonar_tick = now;
-		          Ultrasonic_Trigger();
-		      }
+		uint32_t now = HAL_GetTick();
+		if (now - last_sonar_tick >= 60) {
+			last_sonar_tick = now;
+			Ultrasonic_Trigger();
+		}
 		/* Read wheel encoder ticks from TIM5 */
 		int32_t raw_cnt = (int32_t) __HAL_TIM_GET_COUNTER(&ENCODER_TIMER);
 		position = (raw_cnt < 0) ? -raw_cnt : raw_cnt;
@@ -353,12 +353,15 @@ int main(void) {
 		}
 
 		/* Emergency stop if obstacle <= 30 cm */
-		      if (state != 0 && Ultrasonic_GetDistance() <= 30.0f && Ultrasonic_GetDistance() > 2.0f) {
-		          state = 0;             // Cancel profile
-		          SP_Vel = 0.0f;
-		          ErrorAcum = 0.0f;
-		          Apply_Motor_PWM(0.0f); // Active brake
-		      }
+		if (Ultrasonic_GetDistance() <= 30.0f
+				&& Ultrasonic_GetDistance() > 2.0f) {
+			state = 0;             // Cancel profile if running
+			SP_Vel = 0.0f;
+			ErrorAcum = 0.0f;
+			HAL_GPIO_WritePin(IN1_PORT, IN1_PIN, GPIO_PIN_RESET);
+			HAL_GPIO_WritePin(IN2_PORT, IN2_PIN, GPIO_PIN_RESET);
+			__HAL_TIM_SET_COMPARE(&MOTOR_TIMER, TIM_CHANNEL_1, 0); // Cut PWM immediately
+		}
 
 		/* Execute Speed Profile & PI Controller every 100 ms (0.1 sec) */
 		uint32_t currentTime = HAL_GetTick();
@@ -928,7 +931,7 @@ static void MX_GPIO_Init(void) {
 
 /* USER CODE BEGIN 4 */
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
-    Ultrasonic_EXTI_Callback(GPIO_Pin);  // <--- Passes the echo pulse to ultrasonic.c
+	Ultrasonic_EXTI_Callback(GPIO_Pin); // <--- Passes the echo pulse to ultrasonic.c
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
