@@ -139,6 +139,9 @@ The `.ioc` changes (TIM3 with its global interrupt, PA7 as `GPIO_EXTI7`,
 EXTI line[9:5] interrupt) are in `stm32-car.ioc`, so the configuration
 screens can be shown in CubeIDE.
 
+The MATLAB / Simulink part (identification, continuous and discrete
+simulation, PID tuning, validation) is in [`matlab/`](matlab/README.md).
+
 ## Settings
 
 Every tunable number is in `Core/Inc/car_config.h`, apart from the PID
