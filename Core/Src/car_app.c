@@ -1,80 +1,65 @@
 /* =====================================================================
- * car_app.c - the car: distance runs, manual driving, steering, OLED
- *
- * Commands work on the USB virtual COM port (115200) and Bluetooth (9600).
- * One letter, then an optional number ("d1.2" and "D 1.2" are the same):
- *   d <m>     distance run: speed profile + PID (car_drive.c)
- *   tt <s>    run time (0 = nominal speed)  ta / td <s>  accel / decel time
- *   kp ki kd <gain>  PID gains
- *   v <cm/s>  constant speed, open loop    s   stop (coast)
- *   f / b     forward / back at 60 %       1..6  50..100 %, same direction
- *   l c r     steer left / centre / right
- *   P <pct>   open-loop motor -100..100    X   stop + brake
- *   Z         zero the encoder             M <cpm>  counts per metre
- *   T <hz>    telemetry on (0 = off)       G   show settings
- *   I         I2C scan + restart the OLED  ?   help
- * B1 or the start button (PB0) starts a 1 m run after 1 s.
- *
- * The OLED (I2C1, car_oled.c) shows the run, speed, motor %, battery and
- * sonar distance at 5 Hz.
+ * car_app.c - application layer.
+ *  - parses incoming command lines (USB or Bluetooth)
+ *  - redraws the OLED display at 5 Hz
+ *  - sends periodic telemetry when enabled (T command)
+ *  - watches the start buttons (B1 blue button, or PB0 external)
  * ===================================================================== */
 #include "main.h"
 #include "car_app.h"
-#include "car_config.h"
-#include "car_hw.h"
 #include "car_comms.h"
+#include "car_config.h"
 #include "car_drive.h"
+#include "car_hw.h"
 #include "car_oled.h"
-#include <string.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <string.h>
 
-static uint32_t telemPeriodMs = 0, telemLastMs = 0;
 static bool     oledOn = false;
-static int      oledSteps = 0;
-static bool     armed = false, btnWas = false;   /* button pressed, run starts after BUTTON_DELAY_MS */
+static uint8_t  oledSteps = 0;
+static uint32_t telemPeriodMs = 0;
+static uint32_t telemLastMs = 0;
+static bool     btnWas = false;
+static bool     armed = false;
 static uint32_t armedMs = 0;
 
+/* ----------------------------------------------------------- telemetry */
+static void telemetry_header(void) {
+  lb_clear();
+  lb_str("ms,cnt,dist_cm,spd_cms,sp_cms,mot_pct,ref_cm,sonar_cm");
+  lb_send(false);
+}
+
+static void telemetry_send(void) {
+  lb_clear();
+  lb_uint(HAL_GetTick());      lb_str(",");
+  lb_int(encoder_count());     lb_str(",");
+  lb_float(Real_Dist, 1);      lb_str(",");
+  lb_float(AverageSpeed, 1);   lb_str(",");
+  lb_float(SP_Vel, 1);         lb_str(",");
+  lb_float(motorPct, 1);       lb_str(",");
+  lb_float(Pos_Ref, 1);        lb_str(",");
+  lb_float(sonarCm, 0);
+  lb_send(true);
+}
+
+/* ------------------------------------------------------------- replies */
 static void print_help(void) {
-  say("d <m>     distance run, e.g. d1.2     s  stop");
-  say("v <cm/s>  constant speed, open loop   1..6  50..100 % same direction");
-  lb_clear(); lb_str("f / b     forward / back at "); lb_float(MANUAL_PCT, 0);
-  lb_str(" %   l c r  steer left / centre / right"); lb_send(false);
-  say("P <pct>   open-loop motor -100..100   X  stop + brake   Z  zero encoder");
-  say("M <cpm>   counts per metre            T <hz>  telemetry (0 = off)");
-  say("G         settings   I  I2C scan, restart the OLED   ?  help");
-  say("tt <s>    run time, 0 = nominal speed  ta <s> / td <s>  accel / decel time");
-  say("kp ki kd <gain>  PID gains, e.g. kp 3");
-  lb_clear(); lb_str("B1 / start button: "); lb_float(BUTTON_RUN_M, 2); lb_str(" m run after ");
-  lb_float(BUTTON_DELAY_MS / 1000.0f, 1); lb_str(" s"); lb_send(false);
+  say("Commands: d<dist_m> | tt<sec> | ta<sec> | td<sec> | kp<val> | ki<val> | kd<val>");
+  say("          v<cm/s> | f | b | 1..6 | s | x | l | c | r | p<pct> | z | m<cpm> | t<hz> | g | i | ?");
 }
 
 static void print_settings(void) {
-  lb_clear(); lb_str("CPM="); lb_float(COUNTS_PER_METER, 1);
+  lb_clear();
+  lb_str("cpm="); lb_float(COUNTS_PER_METER, 1);
   lb_str(" Kp="); lb_float(Kp, 2); lb_str(" Ki="); lb_float(Ki, 2); lb_str(" Kd="); lb_float(Kd, 2);
   lb_str(" tt="); lb_float(run_T, 1); lb_str(" ta="); lb_float(run_ta, 1); lb_str(" td="); lb_float(run_td, 1);
   lb_str(" sonar="); lb_float(sonarCm, 0); lb_str("cm");
   lb_str(" batt="); lb_float(battery_volts(), 2); lb_str("V");
   lb_str(" counts="); lb_int(encoder_count());
   lb_send(false);
-}
-
-static void telemetry_header(void) {
-  say("t_ms,state,sp_cms,speed_cms,dist_cm,counts,motor_pct,ref_cm,sonar_cm");
-}
-
-static void telemetry_send(void) {
-  lb_clear();
-  lb_uint(HAL_GetTick());      lb_str(",");
-  lb_int(state);               lb_str(",");
-  lb_float(SP_Vel, 2);         lb_str(",");
-  lb_float(AverageSpeed, 2);   lb_str(",");
-  lb_float(Real_Dist, 1);      lb_str(",");
-  lb_int(encoder_count());     lb_str(",");
-  lb_float(motorPct, 1);       lb_str(",");
-  lb_float(Pos_Ref, 1);        lb_str(",");
-  lb_float(sonarCm, 0);
-  lb_send(true);
 }
 
 /* ------------------------------------------------------------------ OLED */
@@ -95,8 +80,13 @@ static void oled_draw_status(void) {
   oled_text(0, 3, "Ninjago", 1);
   int x = oled_float(54, 3, battery_volts(), 1, 1);
   oled_text(x, 3, "V", 1);
-  x = oled_int(92, 3, (int32_t)sonarCm, 1);
-  oled_text(x, 3, "cm", 1);
+
+  if (sonarCm >= 200.0f) {
+    oled_text(88, 3, "---cm", 1);
+  } else {
+    x = oled_int(88, 3, (int32_t)sonarCm, 1);
+    oled_text(x, 3, "cm", 1);
+  }
   oled_fill(0, 13, OLED_WIDTH, 1, true);
 
   /* what the car is doing, and the distance of the run */
@@ -104,9 +94,20 @@ static void oled_draw_status(void) {
     x = oled_text(0, 18, "GO IN ", 1);
     x = oled_float(x, 18, (int32_t)(BUTTON_DELAY_MS - (HAL_GetTick() - armedMs)) / 1000.0f, 1, 1);
     oled_text(x, 18, "s", 1);
-  } else if (state != 0 && obstacle) oled_text(0, 18, "OBSTACLE", 1);
-  else if (state >= 1 && state <= 3) oled_text(0, 18, phase[state], 1);
-  else oled_text(0, 18, motorPct != 0 ? "MANUAL" : phase[0], 1);
+  } else if (state != 0 && obstacle) {
+    oled_text(0, 18, "OBSTACLE", 1);
+  } else if (state >= 1 && state <= 3) {
+    oled_text(0, 18, phase[state], 1);
+  } else if (btRxBytes > 0) {
+    /* Show live Bluetooth bytes received and last character */
+    x = oled_text(0, 18, "BT:", 1);
+    x = oled_int(x, 18, (int32_t)btRxBytes, 1);
+    char buf[5] = { ' ', '\'', (lastBtChar >= 32 && lastBtChar <= 126) ? lastBtChar : '?', '\'', 0 };
+    oled_text(x, 18, buf, 1);
+  } else {
+    oled_text(0, 18, motorPct != 0 ? "MANUAL" : phase[0], 1);
+  }
+
   if (armed || state != 0) {
     x = oled_float(72, 18, armed ? BUTTON_RUN_M : target_dist_cm / 100.0f, 2, 1);
     oled_text(x, 18, " m", 1);
@@ -200,14 +201,11 @@ static void handle_command(char *line) {
   else if (c == 'F') { manual(); motor_set(MANUAL_PCT); say("OK forward"); }
   else if (c == 'B') { manual(); motor_set(-MANUAL_PCT); say("OK back"); }
   else if (c == 'S') { manual(); drive_stop(); say("OK stop"); }
-  else if (c >= '1' && c <= '6') {   /* only changes the speed while moving */
+  else if (c >= '1' && c <= '6') {   /* direct drive or change speed while moving */
     float pct = (float)((c - '0' + 4) * 10);
     manual();
-    if (motorPct == 0) say("ERR not moving: f or b first");
-    else {
-      motor_set(motorPct < 0 ? -pct : pct);
-      lb_clear(); lb_str("OK "); lb_float(pct, 0); lb_str(" %"); lb_send(false);
-    }
+    motor_set(motorPct < 0 ? -pct : pct);
+    lb_clear(); lb_str("OK "); lb_float(pct, 0); lb_str(" %"); lb_send(false);
   }
   else if (c == 'L') { servo_set_us(SERVO_PULSE_MIN);    say("OK left"); }
   else if (c == 'C') { servo_set_us(SERVO_PULSE_CENTER); say("OK centre"); }

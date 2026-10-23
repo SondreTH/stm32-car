@@ -1,8 +1,11 @@
 /* =====================================================================
- * car_comms.c - UART text I/O with software queues.
- *  RX: 1-byte interrupt receive into a ring buffer, re-armed every byte.
- *  TX: lines go into a ring buffer; comms_pump() starts an interrupt
- *      transmission of the next block whenever the UART is idle.
+ * car_comms.c - Simple, robust UART communications matching Hakons_leg.
+ *
+ * USART1: Bluetooth (PA9 TX, PA10 RX, 9600 baud)
+ * USART2: USB ST-LINK Virtual COM port (PA2 TX, PA3 RX, 115200 baud)
+ *
+ * Uses Hakons_leg proven direct interrupt reception with ORE error
+ * recovery and LD2 LED toggle on every byte received.
  * ===================================================================== */
 #include "main.h"
 #include "car_comms.h"
@@ -11,97 +14,195 @@
 extern UART_HandleTypeDef huart1;   /* Bluetooth */
 extern UART_HandleTypeDef huart2;   /* USB virtual COM (ST-LINK) */
 
-#define TXQ 1024   /* power of two */
-#define RXQ 256    /* power of two */
+/* Live Bluetooth diagnostics */
+volatile uint32_t btRxBytes = 0;
+volatile uint32_t btErrCount = 0;
+volatile char     lastBtChar = ' ';
 
-typedef struct {
-  UART_HandleTypeDef *h;
-  uint8_t  tx[TXQ];
-  volatile uint16_t txHead, txTail, txBusy;   /* txBusy = bytes in flight */
-  uint8_t  rx[RXQ];
-  volatile uint16_t rxHead, rxTail;
-  uint8_t  rxByte;
-  char     line[64];
-  uint8_t  lineLen;
-} Port;
+/* Bluetooth (USART1) receive buffer - identical architecture to Hakons_leg */
+#define BT_BUF_SIZE 64
+static uint8_t  bt_rx_byte = 0;
+static char     bt_rx_buf[BT_BUF_SIZE];
+static uint8_t  bt_rx_idx = 0;
+static volatile uint8_t bt_cmd_ready = 0;
 
-static Port ports[2];
+/* USB (USART2) receive buffer */
+#define USB_BUF_SIZE 64
+static uint8_t  usb_rx_byte = 0;
+static char     usb_rx_buf[USB_BUF_SIZE];
+static uint8_t  usb_rx_idx = 0;
+static volatile uint8_t usb_cmd_ready = 0;
 
-static uint16_t tx_used(Port *p)  { return (uint16_t)(p->txHead - p->txTail) & (TXQ - 1); }
-static uint16_t tx_space(Port *p) { return (uint16_t)(TXQ - 1 - tx_used(p)); }
-
-static void port_pump(Port *p) {
-  if (p->txBusy || p->txHead == p->txTail) return;
-  if (p->h->gState != HAL_UART_STATE_READY) return;
-  uint16_t tail = p->txTail, head = p->txHead;
-  uint16_t len = (head > tail) ? (uint16_t)(head - tail) : (uint16_t)(TXQ - tail);  /* contiguous block */
-  p->txBusy = len;
-  if (HAL_UART_Transmit_IT(p->h, &p->tx[tail], len) != HAL_OK) p->txBusy = 0;
-}
-
-static void port_put(Port *p, const char *d, uint16_t n) {
-  for (uint16_t i = 0; i < n; i++) { p->tx[p->txHead] = (uint8_t)d[i]; p->txHead = (uint16_t)((p->txHead + 1) & (TXQ - 1)); }
-}
-
-static void port_send(Port *p, const char *d, uint16_t n, bool dropIfBusy) {
-  if ((uint16_t)(n + 2) > tx_space(p)) {
-    if (dropIfBusy) return;
-    uint32_t t0 = HAL_GetTick();
-    while ((uint16_t)(n + 2) > tx_space(p) && HAL_GetTick() - t0 < 500) port_pump(p);
-    if ((uint16_t)(n + 2) > tx_space(p)) return;   /* port stuck: give up rather than hang */
+/* Check for standalone action commands that don't take numeric arguments */
+static bool is_instant_cmd(char c) {
+  switch (c) {
+    case 'f': case 'F':
+    case 'b': case 'B':
+    case 's': case 'S':
+    case 'l': case 'L':
+    case 'c': case 'C':
+    case 'r': case 'R':
+    case 'x': case 'X':
+    case 'z': case 'Z':
+    case 'g': case 'G':
+    case 'i': case 'I':
+    case '?': case 'h': case 'H':
+    case '1': case '2': case '3': case '4': case '5': case '6':
+      return true;
+    default:
+      return false;
   }
-  port_put(p, d, n);
-  port_put(p, "\r\n", 2);
 }
 
-/* ---- HAL callbacks (called from the USART interrupts) ---- */
-static Port *port_of(UART_HandleTypeDef *h) { return h == &huart2 ? &ports[0] : (h == &huart1 ? &ports[1] : 0); }
+/* ------------------------------------------------------------- HAL Callbacks */
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
+  if (huart->Instance == USART1) {
+    /* DIAGNOSTIC: Toggle on-board green LED on EVERY byte received (like Hakons_leg) */
+    HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
+    btRxBytes++;
+    lastBtChar = (char)bt_rx_byte;
 
-void HAL_UART_TxCpltCallback(UART_HandleTypeDef *h) {
-  Port *p = port_of(h); if (!p) return;
-  p->txTail = (uint16_t)((p->txTail + p->txBusy) & (TXQ - 1));
-  p->txBusy = 0;
+    if (bt_rx_byte == '\r' || bt_rx_byte == '\n') {
+      if (bt_rx_idx > 0) {
+        bt_rx_buf[bt_rx_idx] = '\0';
+        bt_cmd_ready = 1;
+      }
+    } else if (bt_rx_idx == 0 && is_instant_cmd((char)bt_rx_byte)) {
+      /* Single-character action command: execute immediately without waiting for newline */
+      bt_rx_buf[0] = (char)bt_rx_byte;
+      bt_rx_buf[1] = '\0';
+      bt_cmd_ready = 1;
+    } else {
+      if (bt_rx_idx < (BT_BUF_SIZE - 1)) {
+        bt_rx_buf[bt_rx_idx++] = (char)bt_rx_byte;
+      } else {
+        bt_rx_idx = 0;
+      }
+    }
+
+    /* Clear any overrun flag before re-arming receive interrupt */
+    __HAL_UART_CLEAR_OREFLAG(&huart1);
+    HAL_UART_Receive_IT(&huart1, &bt_rx_byte, 1);
+  }
+  else if (huart->Instance == USART2) {
+    if (usb_rx_byte == '\r' || usb_rx_byte == '\n') {
+      if (usb_rx_idx > 0) {
+        usb_rx_buf[usb_rx_idx] = '\0';
+        usb_cmd_ready = 1;
+      }
+    } else if (usb_rx_idx == 0 && is_instant_cmd((char)usb_rx_byte)) {
+      usb_rx_buf[0] = (char)usb_rx_byte;
+      usb_rx_buf[1] = '\0';
+      usb_cmd_ready = 1;
+    } else {
+      if (usb_rx_idx < (USB_BUF_SIZE - 1)) {
+        usb_rx_buf[usb_rx_idx++] = (char)usb_rx_byte;
+      } else {
+        usb_rx_idx = 0;
+      }
+    }
+
+    __HAL_UART_CLEAR_OREFLAG(&huart2);
+    HAL_UART_Receive_IT(&huart2, &usb_rx_byte, 1);
+  }
 }
 
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *h) {
-  Port *p = port_of(h); if (!p) return;
-  if (h == &huart1) HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);   /* blink on every Bluetooth byte: the link works */
-  uint16_t next = (uint16_t)((p->rxHead + 1) & (RXQ - 1));
-  if (next != p->rxTail) { p->rx[p->rxHead] = p->rxByte; p->rxHead = next; }
-  HAL_UART_Receive_IT(h, &p->rxByte, 1);
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart) {
+  if (huart->Instance == USART1) {
+    btErrCount++;
+    HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
+
+    /* Clear error flags exactly like Hakons_leg */
+    __HAL_UART_CLEAR_OREFLAG(huart);
+    __HAL_UART_CLEAR_NEFLAG(huart);
+    __HAL_UART_CLEAR_FEFLAG(huart);
+    __HAL_UART_CLEAR_PEFLAG(huart);
+
+    /* Restart listening */
+    HAL_UART_Receive_IT(&huart1, &bt_rx_byte, 1);
+  }
+  else if (huart->Instance == USART2) {
+    __HAL_UART_CLEAR_OREFLAG(huart);
+    __HAL_UART_CLEAR_NEFLAG(huart);
+    __HAL_UART_CLEAR_FEFLAG(huart);
+    __HAL_UART_CLEAR_PEFLAG(huart);
+
+    HAL_UART_Receive_IT(&huart2, &usb_rx_byte, 1);
+  }
 }
 
-void HAL_UART_ErrorCallback(UART_HandleTypeDef *h) {
-  Port *p = port_of(h); if (!p) return;
-  if (p->txBusy && h->gState == HAL_UART_STATE_READY) p->txBusy = 0;   /* aborted TX: resend later */
-  HAL_UART_Receive_IT(h, &p->rxByte, 1);                               /* re-arm after overrun/noise */
-}
-
+/* ----------------------------------------------------------------- Public API */
 void comms_init(void) {
-  memset(ports, 0, sizeof(ports));
-  ports[0].h = &huart2;
-  ports[1].h = &huart1;
-  for (int i = 0; i < 2; i++) HAL_UART_Receive_IT(ports[i].h, &ports[i].rxByte, 1);
+  btRxBytes = 0;
+  btErrCount = 0;
+  lastBtChar = ' ';
+  bt_rx_idx = 0;
+  bt_cmd_ready = 0;
+  memset(bt_rx_buf, 0, sizeof(bt_rx_buf));
+
+  usb_rx_idx = 0;
+  usb_cmd_ready = 0;
+  memset(usb_rx_buf, 0, sizeof(usb_rx_buf));
+
+  /* Force enable USART1 NVIC interrupt like Hakons_leg */
+  HAL_NVIC_SetPriority(USART1_IRQn, 1, 0);
+  HAL_NVIC_EnableIRQ(USART1_IRQn);
+
+  /* Clear flags and start listening, exactly like Hakons_leg */
+  __HAL_UART_CLEAR_OREFLAG(&huart1);
+  __HAL_UART_CLEAR_NEFLAG(&huart1);
+  __HAL_UART_CLEAR_FEFLAG(&huart1);
+  HAL_UART_Receive_IT(&huart1, &bt_rx_byte, 1);
+
+  __HAL_UART_CLEAR_OREFLAG(&huart2);
+  __HAL_UART_CLEAR_NEFLAG(&huart2);
+  __HAL_UART_CLEAR_FEFLAG(&huart2);
+  HAL_UART_Receive_IT(&huart2, &usb_rx_byte, 1);
 }
 
-void comms_pump(void) { port_pump(&ports[0]); port_pump(&ports[1]); }
+void comms_pump(void) {
+  /* Transmissions are sent cleanly in lb_send; pump is a no-op */
+}
 
 void comms_poll(void (*onLine)(char *line)) {
-  for (int i = 0; i < 2; i++) {
-    Port *p = &ports[i];
-    /* make sure reception is armed (e.g. after an error) */
-    if (p->h->RxState == HAL_UART_STATE_READY) HAL_UART_Receive_IT(p->h, &p->rxByte, 1);
-    while (p->rxTail != p->rxHead) {
-      char ch = (char)p->rx[p->rxTail];
-      p->rxTail = (uint16_t)((p->rxTail + 1) & (RXQ - 1));
-      if (ch == '\n' || ch == '\r') {
-        if (p->lineLen) { p->line[p->lineLen] = 0; p->lineLen = 0; onLine(p->line); }
-      } else if (p->lineLen < sizeof(p->line) - 1) p->line[p->lineLen++] = ch;
-    }
+  /* 1. Process Bluetooth command if ready */
+  if (bt_cmd_ready) {
+    static char line[BT_BUF_SIZE];
+    strncpy(line, bt_rx_buf, sizeof(line) - 1);
+    line[sizeof(line) - 1] = '\0';
+    bt_rx_idx = 0;
+    bt_rx_buf[0] = '\0';
+    bt_cmd_ready = 0;
+    onLine(line);
+  }
+
+  /* 2. Process USB command if ready */
+  if (usb_cmd_ready) {
+    static char line[USB_BUF_SIZE];
+    strncpy(line, usb_rx_buf, sizeof(line) - 1);
+    line[sizeof(line) - 1] = '\0';
+    usb_rx_idx = 0;
+    usb_rx_buf[0] = '\0';
+    usb_cmd_ready = 0;
+    onLine(line);
+  }
+
+  /* Ensure reception stays armed if an unhandled error reset RxState (Watchdog like Hakons_leg) */
+  if (huart1.RxState == HAL_UART_STATE_READY) {
+    __HAL_UART_CLEAR_OREFLAG(&huart1);
+    __HAL_UART_CLEAR_NEFLAG(&huart1);
+    __HAL_UART_CLEAR_FEFLAG(&huart1);
+    HAL_UART_Receive_IT(&huart1, &bt_rx_byte, 1);
+  }
+  if (huart2.RxState == HAL_UART_STATE_READY) {
+    __HAL_UART_CLEAR_OREFLAG(&huart2);
+    __HAL_UART_CLEAR_NEFLAG(&huart2);
+    __HAL_UART_CLEAR_FEFLAG(&huart2);
+    HAL_UART_Receive_IT(&huart2, &usb_rx_byte, 1);
   }
 }
 
-/* ---- line builder ---- */
+/* -------------------------------------------------------------- Line Builder */
 static char    lbBuf[180];
 static uint16_t lbLen = 0;
 
@@ -138,8 +239,15 @@ void lb_float(float v, int decimals) {
 }
 
 void lb_send(bool dropIfBusy) {
-  port_send(&ports[0], lbBuf, lbLen, dropIfBusy);
-  port_send(&ports[1], lbBuf, lbLen, dropIfBusy);
+  if (lbLen == 0) return;
+  if (lbLen < sizeof(lbBuf) - 2) {
+    lbBuf[lbLen++] = '\r';
+    lbBuf[lbLen++] = '\n';
+  }
+  /* Send to USB Virtual COM port */
+  HAL_UART_Transmit(&huart2, (uint8_t *)lbBuf, lbLen, 10);
+  /* Send to Bluetooth */
+  HAL_UART_Transmit(&huart1, (uint8_t *)lbBuf, lbLen, 10);
   lbLen = 0;
 }
 

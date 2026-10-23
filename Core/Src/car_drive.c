@@ -43,11 +43,11 @@ float lastError = 0.0f;
 float ErrorAcum = 0.0f;
 float ErrorRate = 0.0f;
 
-/* Gains: position error (cm) -> speed correction (cm/s). Starting values,
- * replace them with the MATLAB tuning. Volatile for CubeMonitor tuning. */
-volatile float Kp = 3.0f;
-volatile float Ki = 2.0f;
-volatile float Kd = 0.0f;
+/* Gains: position error (cm) -> speed correction (cm/s).
+ * Starting values tuned on Hakon's car. Volatile for CubeMonitor tuning. */
+volatile float Kp = 3.8f;
+volatile float Ki = 2.5f;
+volatile float Kd = 0.05f;
 
 /* Function to enter distance with computer (CubeMonitor trigger) */
 volatile float test_dist_m = 0.0f;
@@ -168,11 +168,11 @@ float ControlPID(float setpoint, float input, float dt) {
   /* 2. Obtain accumulated error (Integral term) */
   ErrorAcum = ErrorAcum + (error * dt);
 
-  /* Anti-windup limit on integral term (tightened to prevent overshoot) */
-  if (ErrorAcum > 15.0f)
-    ErrorAcum = 15.0f;
-  if (ErrorAcum < -15.0f)
-    ErrorAcum = -15.0f;
+  /* Anti-windup limit on integral term (matches Hakon's tuned limit) */
+  if (ErrorAcum > 25.0f)
+    ErrorAcum = 25.0f;
+  if (ErrorAcum < -25.0f)
+    ErrorAcum = -25.0f;
 
   /* 3. Obtain derivative error: ErrorRate */
   if (dt > 0.0f) {
@@ -199,7 +199,7 @@ void Apply_Motor_PWM(float control_cm_s) {
     motor_set(0.0f);   // coast: IN1 = IN2 = low, no PWM
     return;
   }
-  /* Lower base offset (~45% duty) so PID can control slow 18 cm/s speeds.
+  /* Lower base offset so PID can control slow speeds.
    * motor_set() clamps to 100 %. */
   motor_set(MOTOR_MIN_PCT + control_cm_s * MOTOR_PCT_PER_CMS);
 }
@@ -252,16 +252,24 @@ void drive_update(void) {
   Speed_CM_SEC = ((float) delta_ticks / ticks_per_cm()) / elapsedTime;
   AverageSpeed = (0.5f * AverageSpeed) + (0.5f * Speed_CM_SEC);
 
-  /* Obstacle: two close readings in a row to stop, clear to continue.
-   * Then start the next sonar measurement (its echo is read before next step). */
-  if (sonarCm < OBST_STOP_CM) { if (obstHits < 2) obstHits++; }
-  else obstHits = 0;
+  /* Obstacle check: valid reading between 2 cm and OBST_STOP_CM (30 cm).
+   * Readings < 2 cm are noise glitches and ignored.
+   * Two close readings in a row brake and pause the car.
+   * Clear once obstacle is further than OBST_CLEAR_CM (35 cm). */
+  if (sonarCm <= OBST_STOP_CM && sonarCm >= 2.0f) {
+    if (obstHits < 2) obstHits++;
+  } else if (sonarCm > OBST_CLEAR_CM) {
+    obstHits = 0;
+  }
+
   if (obstHits >= 2) obstacle = true;
   else if (sonarCm > OBST_CLEAR_CM) obstacle = false;
+
+  /* Trigger the next ultrasonic measurement (its echo will be processed before next step) */
   sonar_trigger();
 
   /* Paused by an obstacle: brake, and freeze the profile clock and Pos_Ref,
-   * so the run continues from the same point once the way is clear */
+   * so the run continues from the exact same point once the way is clear */
   if (state != 0 && obstacle) {
     motor_brake();
     return;
@@ -305,8 +313,8 @@ void drive_update(void) {
       /* Position loop: PID on Pos_Ref - Real_Dist, SP_Vel as feed-forward */
       float pid_correction = ControlPID(Pos_Ref, Real_Dist, elapsedTime);
       float total_command_cm_s = SP_Vel + pid_correction;
-      if (total_command_cm_s < 0.5f)
-        total_command_cm_s = 0.5f;
+      if (total_command_cm_s < 1.0f)
+        total_command_cm_s = 1.0f;
       Apply_Motor_PWM(total_command_cm_s);
     }
   }

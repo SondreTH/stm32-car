@@ -100,27 +100,43 @@ static volatile uint32_t echoStart;
 static volatile bool     echoHigh = false, echoDone = true;
 
 void sonar_trigger(void) {
-  if (!echoDone) sonarCm = SONAR_MAX_CM;   /* last echo never came back: nothing in range */
+  /* Reset state if last echo never completed or timed out */
+  if (!echoDone || echoHigh) {
+    sonarCm = SONAR_MAX_CM;
+    echoHigh = false;
+  }
   echoDone = false;
+
   uint32_t period = __HAL_TIM_GET_AUTORELOAD(&htim3) + 1;
   uint32_t t0 = __HAL_TIM_GET_COUNTER(&htim3);
   HAL_GPIO_WritePin(SONAR_TRIG_GPIO_Port, SONAR_TRIG_Pin, GPIO_PIN_SET);
-  while ((__HAL_TIM_GET_COUNTER(&htim3) + period - t0) % period < 2) {}   /* >= 10 us */
+
+  /* Wait >= 10 us (at least 2 ticks of 10 us timer) with safe loop timeout guard */
+  uint32_t timeout = 5000;
+  while (((__HAL_TIM_GET_COUNTER(&htim3) + period - t0) % period < 2) && --timeout) {}
+
   HAL_GPIO_WritePin(SONAR_TRIG_GPIO_Port, SONAR_TRIG_Pin, GPIO_PIN_RESET);
 }
 
 void sonar_echo_edge(void) {
   uint32_t now = __HAL_TIM_GET_COUNTER(&htim3);
   if (HAL_GPIO_ReadPin(SONAR_ECHO_GPIO_Port, SONAR_ECHO_Pin) == GPIO_PIN_SET) {
+    /* Rising edge: note the start timestamp */
     echoStart = now;
     echoHigh = true;
   } else if (echoHigh) {
+    /* Falling edge: compute elapsed pulse time */
     uint32_t period = __HAL_TIM_GET_AUTORELOAD(&htim3) + 1;
     uint32_t us = ((now + period - echoStart) % period) * SONAR_TICK_US;
-    float cm = us / 58.0f;
-    sonarCm = (cm > SONAR_MAX_CM) ? SONAR_MAX_CM : cm;
+    float cm = (float)us / 58.0f;
+
+    /* Reject glitches: HC-SR04 physical minimum distance is 2 cm.
+     * Pulses shorter than ~116 us are noise spikes. */
+    if (cm >= 2.0f) {
+      sonarCm = (cm > SONAR_MAX_CM) ? SONAR_MAX_CM : cm;
+      echoDone = true;
+    }
     echoHigh = false;
-    echoDone = true;
   }
 }
 

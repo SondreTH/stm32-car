@@ -11,6 +11,11 @@
 extern "C" {
 #endif
 
+/* Live Bluetooth diagnostics */
+extern volatile uint32_t btRxBytes;
+extern volatile uint32_t btErrCount;
+extern volatile char     lastBtChar;
+
 void comms_init(void);
 void comms_pump(void);                          /* call every loop: starts transmissions */
 void comms_poll(void (*onLine)(char *line));    /* call every loop: complete input lines */

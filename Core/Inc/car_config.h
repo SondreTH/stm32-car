@@ -33,7 +33,7 @@ extern "C" {
 
 /* ---- direction fixes: flip one if a bring-up test goes the wrong way ---- */
 #define ENCODER_INVERT  0   /* driving forward must INCREASE counts */
-#define MOTOR_INVERT    0   /* "P 30" must drive the car FORWARD    */
+#define MOTOR_INVERT    1   /* 1 so forward drives forward matching physical wiring (PB4 LOW, PB5 HIGH) */
 
 /* ---- OLED (car_oled.c): match your module ---- */
 #define OLED_HEIGHT     64  /* 64 = 0.96" 128x64, 32 = 0.91" 128x32             */
@@ -61,10 +61,10 @@ extern "C" {
 #define OBST_CLEAR_CM     35.0f   /* further than this: continue the run        */
 
 /* motor % for a speed in cm/s: an offset that gets the car moving, plus a slope.
- * Tuned on the car as 6500 + 85 per cm/s out of a 14400-count PWM period. */
-#define MOTOR_MIN_PCT      (6500.0f / 144.0f)   /* 45.1 %          */
-#define MOTOR_PCT_PER_CMS  (85.0f / 144.0f)     /* 0.59 % per cm/s */
-#define MANUAL_PCT         60.0f                /* f / b commands  */
+ * Tuned on the car as 7200 + 80 per cm/s out of a 14400-count PWM period (50% min offset). */
+#define MOTOR_MIN_PCT      (7200.0f / 144.0f)   /* 50.0 % (tuned on Hakon's car) */
+#define MOTOR_PCT_PER_CMS  (80.0f / 144.0f)     /* 0.556 % per cm/s             */
+#define MANUAL_PCT         60.0f                /* f / b commands                */
 
 /* ---- battery: battery+ -> 10k -> PA4 -> 3.3k -> GND ---- */
 #define BATT_DIVIDER    4.03f   /* (10k + 3.3k) / 3.3k, trim against a multimeter */
