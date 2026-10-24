@@ -15,7 +15,10 @@ p = car_params();
 load('model.mat', 'G');
 
 use_kd = false;   % the assignment asks for Kp and Ki; set true to also tune Kd
-wc     = [];      % target crossover (rad/s); [] lets pidtune choose. Larger = faster, less margin
+wc     = 1.85;    % target crossover (rad/s); [] lets pidtune choose. Larger = faster, less margin
+pm     = 35;      % target phase margin (deg). 60 limits wc to ~1.2 rad/s and leaves Ki ~ 0;
+                  % 35 was chosen by simulating the timed run (python/analysis.py, report)
+opts   = pidtuneOptions('PhaseMargin', pm);
 
 Pc = p.motor_slope * G * tf(1, [1 0]);
 Pc.InputName = 'u (cm/s)';  Pc.OutputName = 'position (cm)';
@@ -24,13 +27,13 @@ Pd = c2d(Pc, p.Ts, 'zoh');       % what the controller sees: ZOH on the motor, s
 type = 'PI'; if use_kd, type = 'PID'; end
 
 %% Continuous PID
-if isempty(wc), Cc = pidtune(Pc, type); else, Cc = pidtune(Pc, type, wc); end
+if isempty(wc), Cc = pidtune(Pc, type, opts); else, Cc = pidtune(Pc, type, wc, opts); end
 
 %% Discrete PID, same equations as ControlPID():
 %   ErrorAcum += e*Ts          -> integral, backward Euler
 %   (e - lastError)/Ts         -> derivative, backward Euler, no filter
 C0 = pid(1, 1, double(use_kd), 0, p.Ts, 'IFormula', 'BackwardEuler', 'DFormula', 'BackwardEuler');
-if isempty(wc), Cd = pidtune(Pd, C0); else, Cd = pidtune(Pd, C0, wc); end
+if isempty(wc), Cd = pidtune(Pd, C0, opts); else, Cd = pidtune(Pd, C0, wc, opts); end
 
 %% The gains in the firmware now, for comparison
 Cfw = pid(p.Kp, p.Ki, p.Kd, 0, p.Ts, 'IFormula', 'BackwardEuler', 'DFormula', 'BackwardEuler');

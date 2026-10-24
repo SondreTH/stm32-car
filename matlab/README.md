@@ -7,6 +7,31 @@ constants as the firmware (`car_params.m`), so the simulation matches the car.
 **Needs:** MATLAB with Simulink, Control System Toolbox and System Identification
 Toolbox (all in the Tec licence; MATLAB Online works too: upload this folder).
 
+## 0. Simulated data (what the hand-in uses)
+
+The real tests could not be recorded: the battery was flat (9.4 V of 12.6 V) and
+the labs were closed until after the deadline. With the professor's agreement the
+tests were simulated instead. `car_params.m` therefore points at `data_sim/`.
+
+- `python/virtual_car.py` is a stand-in for the car: the plant
+  `speed = K/(tau s + 1) * (motor% - p0)` with p0 = 50 % and K = 1.8 cm/s per %
+  taken from the feed-forward Hakon tuned on the real car (commit b95dbe3), and an
+  assumed tau = 0.25 s. It runs the firmware's own loop (100 ms interrupt, whole
+  encoder counts, the 0.5/0.5 speed filter, ControlPID) and writes the same
+  telemetry CSVs as the car, marked SIMULATED in their first lines.
+- `python/analysis.py` does steps 1-4 in Python and writes the report figures
+  (`report/figures`) and `python/results.json`.
+- The MATLAB scripts below run unchanged on `data_sim/`, for the toolbox
+  screenshots. step2 uses the same tuning target (phase margin 35 deg at 1.85 rad/s).
+
+```sh
+cd matlab/python
+python virtual_car.py    # regenerate data_sim/ (needs nothing but Python)
+python analysis.py       # needs numpy, scipy, matplotlib
+```
+
+To use real logs later: record them as below and set `p.data_dir = 'data'`.
+
 ## 1. Record the data on the car
 
 Each log is one file in `matlab/data/`. Telemetry at 10 Hz (`T 10`) gives the

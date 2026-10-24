@@ -2,6 +2,12 @@ function p = car_params()
 %CAR_PARAMS Values copied from the firmware, so the simulation matches the car.
 %   If someone changes these in the C code, change them here too.
 
+% ---- where the logs are ----
+% 'data_sim': logs of the virtual car (python/virtual_car.py). The real tests
+% could not be recorded (battery flat, labs closed); simulation was agreed with
+% the professor. Use 'data' for logs recorded on the real car.
+p.data_dir = 'data_sim';
+
 % ---- control loop (main.c, car_config.h) ----
 p.Ts = 0.100;                 % DRIVE_PERIOD_MS: TIM3 interrupt every 100 ms (s)
 

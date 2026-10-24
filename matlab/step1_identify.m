@@ -1,5 +1,5 @@
 %% Step 1 - Open-loop measurements and identification of the plant model
-% Input : data/openloop_P<pct>.csv, one motor step per file (see README.md)
+% Input : <p.data_dir>/openloop_P<pct>.csv, one motor step per file (see README.md)
 % Output: model.mat with G (plant), p0, k_static. Figures for the report.
 %
 % The car is driven open loop with "P <pct>" (no PID). For each file this
@@ -11,8 +11,8 @@
 clear; close all; clc;
 p = car_params();
 
-files = dir(fullfile('data', 'openloop_*.csv'));
-assert(~isempty(files), 'No open-loop logs: put them in data/openloop_P<pct>.csv (see README.md)');
+files = dir(fullfile(p.data_dir, 'openloop_*.csv'));
+assert(~isempty(files), 'No open-loop logs: put them in %s/openloop_P<pct>.csv (see README.md)', p.data_dir);
 
 %% 1. Cut out each step and resample it on the 100 ms control period
 seg = {};

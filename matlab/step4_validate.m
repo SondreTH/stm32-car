@@ -1,5 +1,5 @@
 %% Step 4 - Validate: a real run on the car vs the discrete simulation
-% Input : data/closedloop_*.csv (a "d" run with telemetry on), model.mat
+% Input : <p.data_dir>/closedloop_*.csv (a "d" run with telemetry on), model.mat
 % Output: figures and errors for the report
 %
 % Set run (D, T, ta, td) and gains below to what was on the car for that run.
@@ -9,7 +9,7 @@ clear; close all; clc;
 p = car_params();
 load('model.mat', 'G', 'p0');
 
-file = 'data/closedloop_run1.csv';   % <- the run to compare
+file = fullfile(p.data_dir, 'closedloop_run1.csv');   % <- the run to compare
 % p.D_cm = 100; p.T = 8; p.ta = 2; p.td = 2;     % <- if the run used other settings
 gains = struct('Kp', p.Kp, 'Ki', p.Ki, 'Kd', p.Kd);  % <- the gains on the car (kp/ki/kd)
 
