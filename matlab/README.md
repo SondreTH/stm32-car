@@ -9,21 +9,27 @@ Toolbox (all in the Tec licence; MATLAB Online works too: upload this folder).
 
 ## 1. Record the data on the car
 
-Each log is one file in `matlab/data/`. Telemetry at 20 Hz (`T 20`) gives the
-columns `ms,cnt,dist_cm,spd_cms,sp_cms,mot_pct,ref_cm,sonar_cm`.
+Each log is one file in `matlab/data/`. Telemetry at 10 Hz (`T 10`) gives the
+columns `ms,cnt,dist_cm,spd_cms,sp_cms,mot_pct,ref_cm,sonar_cm`, one row per
+control period. Don't use `T 20` over Bluetooth: at 9600 baud a row takes
+~47 ms to send, so 20 Hz keeps the main loop busy almost all the time.
 
 **Logging over USB** (laptop next to the car, long cable):
 ```sh
 picocom -b 115200 --logfile matlab/data/openloop_P70.csv /dev/ttyACM0
 ```
-**Logging over Bluetooth:** the phone app (e.g. *Serial Bluetooth Terminal*) can
+**Logging over Bluetooth from a Linux laptop:** pair the car's HC-05 (PIN 1234),
+then use a small RFCOMM terminal that writes everything the car sends to the
+file (Python `socket.AF_BLUETOOTH` works without sudo).
+
+**Logging over Bluetooth from a phone:** the phone app (e.g. *Serial Bluetooth Terminal*) can
 save the log to a file. Copy it here with the same name. Timestamps the app adds
 are ignored.
 
 ### Open-loop steps (for step 1): one file per motor %
 Car on the floor, at least 2 m of free space. For each of `P 60`, `P 70`, `P 80`, `P 90`:
 ```
-T 20
+T 10
 (wait 1 s, car standing still)
 P 70
 (wait 3 s, it must reach a constant speed)
@@ -38,7 +44,7 @@ The car needs about 50 % to start moving, so `P 50` and lower show little.
 tt 8
 ta 2
 td 2
-T 20
+T 10
 d1
 (wait until it stops)
 T 0

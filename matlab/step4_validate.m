@@ -17,7 +17,7 @@ tel = load_telemetry(file);
 
 % the run starts when the reference starts to move
 st = find(tel.ref_cm > 0, 1);
-assert(~isempty(st), '%s: no run found (ref_cm stays 0). Was it a "d" run with T 20 on?', file);
+assert(~isempty(st), '%s: no run found (ref_cm stays 0). Was it a "d" run with T 10 on?', file);
 st = max(st - 1, 1);
 rl = tel(st:end, :);
 rl.t = rl.t - rl.t(1);

@@ -1,5 +1,5 @@
 function tel = load_telemetry(file)
-%LOAD_TELEMETRY Read a log of the car's telemetry (the "T 10" / "T 20" command).
+%LOAD_TELEMETRY Read a log of the car's telemetry (the "T 10" command).
 %   Works with a picocom --logfile and with a phone Bluetooth terminal log.
 %   Only data rows are kept:  ms,cnt,dist_cm,spd_cms,sp_cms,mot_pct,ref_cm,sonar_cm
 %   Command replies ("OK open-loop"), the header line and timestamps that a
@@ -21,7 +21,7 @@ for i = 1:numel(lines)
 end
 rows = rows(1:n, :);
 if n == 0
-    error('load_telemetry:empty', 'No telemetry rows in %s. Was telemetry on (T 20)?', file);
+    error('load_telemetry:empty', 'No telemetry rows in %s. Was telemetry on (T 10)?', file);
 end
 
 % HAL_GetTick() restarts at 0 after a reset: keep only the part after the last reset

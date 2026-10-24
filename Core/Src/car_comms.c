@@ -246,8 +246,9 @@ void lb_send(bool dropIfBusy) {
   }
   /* Send to USB Virtual COM port */
   HAL_UART_Transmit(&huart2, (uint8_t *)lbBuf, lbLen, 10);
-  /* Send to Bluetooth */
-  HAL_UART_Transmit(&huart1, (uint8_t *)lbBuf, lbLen, 10);
+  /* Send to Bluetooth: 9600 baud is ~1.04 ms per byte, so the timeout must
+     cover the whole line or it gets cut after ~10 characters */
+  HAL_UART_Transmit(&huart1, (uint8_t *)lbBuf, lbLen, lbLen + lbLen / 16 + 5);
   lbLen = 0;
 }
 
