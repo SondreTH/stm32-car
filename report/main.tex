@@ -107,6 +107,10 @@ files as the real car. Its parameters are:
   \item time constant $\tau = \SI{0.25}{\second}$: \textbf{assumed}, typical of a
         small gear-motor car; it was not measured.
 \end{itemize}
+The identification, tuning and simulations were computed with
+\texttt{analysis.py}, a Python port of the MATLAB scripts in \texttt{matlab/}
+(same models, tuning rules and loop simulation); the MATLAB scripts read the same
+simulated files and are run in one go with \texttt{make\_report\_figures.m}.
 Every figure that comes from the virtual car says so, and Section~7 shows how the
 results change when these assumptions are wrong. The method (and all the scripts)
 are the same as for real logs: only the data folder changes.
@@ -148,7 +152,7 @@ repeated in Python (least squares on the simulated response) to check it.
 \begin{table}[H]
 \centering
 \caption{Identified models, speed (cm/s) over $P - p_0$ (\%). Fit is the normalized
-root-mean-square fit of MATLAB's \texttt{compare}.}
+root-mean-square fit, as in MATLAB's \texttt{compare}.}
 \label{tab:models}
 \begin{tabular}{@{}lll@{}}
 \toprule
@@ -187,12 +191,6 @@ not from the motor: the firmware computes the speed from the counts of the last
 filters it with $\bar v_k = 0.5\,\bar v_{k-1} + 0.5\,v_k$. The model therefore
 describes what the controller sees, which is what the tuning needs.
 
-\begin{figure}[H]
-\centering
-\shot{matlab_ident.png}{0.8}{System Identification app (\texttt{systemIdentification},
-import \texttt{dat}) or the \texttt{compare} plot from \texttt{step1\_identify}}
-\caption{Identification in MATLAB (\texttt{step1\_identify.m}).}
-\end{figure}
 
 % =================================================================
 \section*{3. Closed loop in Simulink: sensors, actuators and target}
@@ -254,14 +252,9 @@ The models of the sensors and the actuator are the ones in the firmware:
 \end{itemize}
 The Simulink model (\texttt{build\_simulink\_model.m}) contains two copies of this
 loop, one with a continuous PID and one with the discrete PID, sampler and
-quantizer, driven by the same reference.
+quantizer, driven by the same reference; its blocks are the ones of
+Figure~\ref{fig:loop}.
 
-\begin{figure}[H]
-\centering
-\shot{simulink_model.png}{0.9}{Diagram of \texttt{car\_position\_loop.slx}
-(built by \texttt{build\_simulink\_model.m})}
-\caption{Simulink model of the continuous and discrete position loops.}
-\end{figure}
 
 % =================================================================
 \section*{4. Continuous PID simulation}
@@ -667,14 +660,14 @@ The battery reading is not calibrated yet: it reads low (\SI{5.9}{\volt} for a
 \SI{9.4}{\volt} pack), which points to a wiring or divider fault on PA4.
 
 % =================================================================
-\section*{14. Verification against MATLAB}
+\section*{14. Verification against the simulation}
 
 The variables of the loop (\texttt{Real\_Dist}, \texttt{Pos\_Ref}, \texttt{SP\_Vel},
 \texttt{AverageSpeed}, \texttt{Kp}, \texttt{Ki}, \texttt{Kd}) are global and
 \texttt{volatile} so STM32CubeMonitor can plot them and change the gains live, and
 the same values are sent as telemetry (\texttt{T 10}) over Bluetooth and USB.
-Because the car could not be run with a charged battery, the comparison with MATLAB
-was made with the telemetry of the virtual car instead of a CubeMonitor recording of
+Because the car could not be run with a charged battery, the comparison with the
+simulation was made with the telemetry of the virtual car instead of a CubeMonitor recording of
 the real car (Section~7, Figure~\ref{fig:val}): position within
 \SI{0.55}{\centi\meter} RMS, final position \SI{100.8}{\centi\meter} against
 \SI{101.0}{\centi\meter} simulated. With a charged battery the same comparison is made
