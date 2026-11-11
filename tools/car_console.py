@@ -69,7 +69,7 @@ class Console:
                     f.write("\n".join(self.dump) + "\n")
                 n = sum(1 for l in self.dump if l.strip().startswith("{"))
                 print(f"[path saved: {fn}  ({n} points)]")
-                print("[copy it over cubeide/Team7_Car/Core/Inc/path_data.h and rebuild/flash to make it permanent]")
+                print("[path dumps belong to the gyro autopilot, which is not in the firmware yet]")
                 self.dump = None
             else:
                 self.dump.append(line)

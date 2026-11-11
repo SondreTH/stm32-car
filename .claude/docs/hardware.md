@@ -1,0 +1,123 @@
+# Hardware
+
+Board: NUCLEO-F446RE, with a perfboard on the inner morpho rows
+(`wiring/team7_wiring.html` shows what is soldered where).
+
+| Part | Model |
+|---|---|
+| Drive motor | 25GA370, 12 V, gearbox, quadrature encoder |
+| Motor driver | L298N (ENA jumper removed, PWM on ENA) |
+| Steering | MG996R servo, own 6 V supply from an XL4015 buck converter |
+| Distance sensor | HC-SR04, ECHO through a 1k/2k divider |
+| IMU | MPU-6050 at 0x68 (wired, not read by any code yet) |
+| Display | 0.96" 128x64 I2C OLED, SSD1306, at 0x3C |
+| Bluetooth | BT04-A (ZS-040), 9600 baud |
+| Power | 3S LiPo (11.1 V nominal, 12.6 V full), switch, 5 A fuse, 5 V module for the Nucleo (E5V) and sensors |
+
+## Pins (from `stm32-car.ioc`, names in `main.h`)
+
+| Pin | Function | Name | Connected to |
+|---|---|---|---|
+| PA0 / PA1 | TIM5_CH1 / CH2 | `ENC_A` / `ENC_B` | encoder A / B |
+| PA2 / PA3 | USART2 | – | ST-LINK virtual COM port, 115200 |
+| PA4 | ADC1_IN4 | `BATT_SENSE` | battery divider |
+| PA5 | GPIO out | `LD2` | green LED on the Nucleo |
+| PA7 | EXTI7, both edges | `SONAR_ECHO` | HC-SR04 ECHO via divider |
+| PA8 | TIM1_CH1 | `MOTOR_ENA` | L298N ENA |
+| PA9 / PA10 | USART1 TX / RX | `BT_TX` / `BT_RX` | Bluetooth RXD / TXD, 9600 |
+| PB0 | GPIO in, pull-up | `START_BTN` | button to GND |
+| PB4 / PB5 | GPIO out | `MOTOR_IN1` / `MOTOR_IN2` | L298N IN1 / IN2 |
+| PB6 | GPIO out | `SONAR_TRIG` | HC-SR04 TRIG |
+| PB8 / PB9 | I2C1 SCL / SDA | `I2C_SCL` / `I2C_SDA` | OLED and MPU-6050, 400 kHz |
+| PB10 | TIM2_CH3 | `SERVO_PWM` | servo signal |
+| PC13 | GPIO in | `B1` | blue user button |
+
+## Clock and timers
+
+System clock 84 MHz from the HSI through the PLL (M 16, N 336, P 4).
+APB1 timers and APB2 timers both run at 84 MHz.
+
+| Timer | Settings | Use |
+|---|---|---|
+| TIM1 | PSC 0, ARR 16799 → 5 kHz | motor PWM on CH1 (PA8). Duty = motor % |
+| TIM2 | PSC 83 → 1 MHz, ARR 19999 → 50 Hz | servo PWM on CH3. Compare value = pulse in µs |
+| TIM3 | PSC 839 → 10 µs per count, ARR 9999 → 100 ms | update interrupt = control step; counter = sonar echo timing |
+| TIM5 | encoder mode TI1+TI2 (x4), 32-bit, input filter 6 | wheel encoder |
+
+Hakon's original project ran at 72 MHz with a 14400-count PWM period, which
+is why the motor map is written as "6500 + 85 per cm/s out of 14400".
+
+## Motor (`motor_set`, `motor_brake` in `car_hw.c`)
+
+- `motor_set(pct)`: −100..100. Positive: IN1 high, IN2 low. Negative: the
+  other way. 0: both low and no PWM, the motor coasts.
+- `motor_brake()`: IN1 and IN2 high with full PWM: the L298N shorts the
+  motor, it brakes.
+- `MOTOR_INVERT` in `car_config.h` swaps the direction if the wiring is
+  the other way round.
+- Measured on the car: the car starts to move at about **60 %**; once
+  rolling it follows roughly 45.1 % + 0.59 % per cm/s (Hakon's tuning, at
+  18 cm/s). These are `MOTOR_START_PCT`, `MOTOR_MIN_PCT`,
+  `MOTOR_PCT_PER_CMS` in `car_config.c`.
+
+## Encoder
+
+TIM5 counts every edge of A and B. `COUNTS_PER_METER` = 1035 (10.35 counts
+per cm, measured by Hakon), so one count is about 1 mm, and at the 100 ms
+control step the speed resolution is about 1 cm/s. `encoder_count()` is
+relative to the last `encoder_zero()`. `ENCODER_INVERT` must be set so that
+forward counts **up**; the position loop depends on it and stops a run with
+an error if it is wrong.
+
+## Servo
+
+Pulse widths measured on the car (`car_config.h`): 600 µs full left,
+1100 µs straight, 1500 µs full right. Only these three positions are used
+(`l`, `c`, `r`). There is no steering angle model yet.
+
+## Sonar
+
+`sonar_trigger()` (every control step) sends a 10 µs TRIG pulse.
+`sonar_echo_edge()` (EXTI on PA7) times the echo with TIM3's counter:
+distance in cm = echo µs / 58. Resolution 10 µs ≈ 1.7 mm. No echo before
+the next trigger = `SONAR_MAX_CM` (400). One reading per 100 ms.
+
+## Battery reading: known problem
+
+Intended circuit (wiring guide, J9): battery + → 10k → PA4 → 3.3k → GND,
+factor (10 + 3.3) / 3.3 = 4.03.
+
+Observed on 2026-11-11 (reported by Filip): the OLED showed 7.1 V while a
+multimeter on the battery showed 11.6 V. With the factor 4.03 that means
+1.76 V on PA4, so the real factor is 11.6 / 1.76 = **6.58**. A 10k / 1.8k
+divider gives 6.56, so the most likely cause is a 1.8k resistor where the
+3.3k should be (or another pair with the same ratio, such as 5.6k / 1k).
+Not confirmed by measuring the resistors.
+
+What was done: `BATT_DIVIDER` is now a variable, default 6.58. `G` prints
+the PA4 voltage and the factor. `vb <volts>` computes the factor from a
+multimeter reading.
+
+Still to do on the car: measure PA4 to GND. About 1.76 V at 11.6 V confirms
+the divider theory. About 2.9 V would mean the divider is as drawn and the
+ADC side is wrong (then look at VDDA / the 3.3 V rail and the ADC setup).
+Either way PA4 is far below 3.3 V, so nothing is at risk.
+
+ADC setup: ADC1, channel 4, 12 bit, 480-cycle sampling, software start.
+`battery_pin_volts()` averages 8 conversions and assumes VDDA = 3.3 V.
+
+## I2C1
+
+400 kHz on PB8/PB9. The OLED (0x3C) and the MPU-6050 (0x68) share the bus.
+`i2c_scan()` (the `I` command) lists what answers and re-initialises the
+peripheral, which clears a stuck BUSY flag after hot-plugging.
+
+The old autopilot firmware had an MPU-6050 driver (gyro Z integration with
+calibration). See [history.md](history.md) for where to find it.
+
+## Printed parts (`cad/`)
+
+- `deck_plate`: 180 × 110 × 3 mm top plate with a 10 mm grid of M3 holes,
+  on four M3 standoffs. Set `mount_x` / `mount_y` in the `.scad` to the
+  hole spacing of the car before printing.
+- `sonar_bracket`: holds the HC-SR04 at 45 mm height, tilted 3° up.
