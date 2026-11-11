@@ -1,0 +1,23 @@
+# Build output - STM32CubeIDE recreates these on every build
+Debug/
+Release/
+
+# Eclipse workspace folder - created if someone opens the repo itself as a workspace
+.metadata/
+
+# Per-computer IDE files
+.settings/language.settings.xml
+*.launch
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Laptop tools
+tools/logs/
+tools/saved_paths/
+__pycache__/
+*.pyc
+tools/drive_sim/drive_sim
+build/
