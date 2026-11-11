@@ -16,6 +16,7 @@
 #include <string.h>
 #include <math.h>
 #include "ultrasonic.h"
+#include "car_oled.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -247,6 +248,34 @@ void Set_Speed_cm_s(float target_cm_s) {
 	}
 	Apply_Motor_PWM(target_cm_s);
 }
+
+float get_battery_volts(void) {
+	uint32_t sum = 0;
+	int n = 0;
+	for (int i = 0; i < 8; i++) {
+		HAL_ADC_Start(&hadc1);
+		if (HAL_ADC_PollForConversion(&hadc1, 2) == HAL_OK) {
+			sum += HAL_ADC_GetValue(&hadc1);
+			n++;
+		}
+	}
+	HAL_ADC_Stop(&hadc1);
+	return n ? (float) sum / n * (3.3f / 4095.0f) * 4.03f : 0.0f;
+}
+
+float get_motor_pct(void) {
+	if (state == 0 && HAL_GPIO_ReadPin(IN1_PORT, IN1_PIN) == GPIO_PIN_RESET
+			&& HAL_GPIO_ReadPin(IN2_PORT, IN2_PIN) == GPIO_PIN_RESET) {
+		return 0.0f;
+	}
+	uint32_t cmp = __HAL_TIM_GET_COMPARE(&MOTOR_TIMER, TIM_CHANNEL_1);
+	float pct = (float) cmp / 144.0f;
+	if (HAL_GPIO_ReadPin(IN1_PORT, IN1_PIN) == GPIO_PIN_SET
+			&& HAL_GPIO_ReadPin(IN2_PORT, IN2_PIN) == GPIO_PIN_RESET) {
+		return -pct;
+	}
+	return pct;
+}
 /* USER CODE END 0 */
 
 /**
@@ -287,6 +316,9 @@ int main(void) {
 	/* USER CODE BEGIN 2 */
 	/*Code including ultrasonic */
 	Ultrasonic_Init();
+
+	/* Initialize OLED display */
+	oled_init();
 
 	/* Ensure motor is stopped on startup */
 	HAL_GPIO_WritePin(IN1_PORT, IN1_PIN, GPIO_PIN_RESET);
@@ -352,15 +384,12 @@ int main(void) {
 			Start_Motion_Profile(1.0f, 18.0f, 2.0f);
 		}
 
-		/* Emergency stop if obstacle <= 30 cm */
-		if (Ultrasonic_GetDistance() <= 30.0f
-				&& Ultrasonic_GetDistance() > 2.0f) {
+		/* Emergency stop if obstacle <= 30 cm confirmed */
+		if (state != 0 && Ultrasonic_IsObstacleConfirmed()) {
 			state = 0;             // Cancel profile if running
 			SP_Vel = 0.0f;
 			ErrorAcum = 0.0f;
-			HAL_GPIO_WritePin(IN1_PORT, IN1_PIN, GPIO_PIN_RESET);
-			HAL_GPIO_WritePin(IN2_PORT, IN2_PIN, GPIO_PIN_RESET);
-			__HAL_TIM_SET_COMPARE(&MOTOR_TIMER, TIM_CHANNEL_1, 0); // Cut PWM immediately
+			Apply_Motor_PWM(0.0f);
 		}
 
 		/* Execute Speed Profile & PI Controller every 100 ms (0.1 sec) */
@@ -382,7 +411,7 @@ int main(void) {
 			AverageSpeed = (0.5f * AverageSpeed) + (0.5f * Speed_CM_SEC);
 
 			if (state != 0) {
-				HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin); // Blinks at 5 Hz during run
+				HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin); // Blinker med 5 Hz under kørsel
 				time_ctl += elapsedTime;
 
 				switch (state) {
@@ -407,9 +436,21 @@ int main(void) {
 					break;
 				}
 
-				if (state == 0) {
+				/* 1. Beregn dynamisk tilladt hastighed ud fra ultralydssensoren */
+				float safe_speed = Ultrasonic_GetSafeSpeed(SP_Vel,
+						AverageSpeed);
+
+				/* 2. Hvis stoplinjen på 30 cm nås (bekræftet) eller profilen er færdig */
+				if (state == 0
+						|| (safe_speed <= 0.0f
+								&& Ultrasonic_IsObstacleConfirmed())) {
+					state = 0;
+					SP_Vel = 0.0f;
+					ErrorAcum = 0.0f;
 					Apply_Motor_PWM(0.0f);
 				} else {
+					/* 3. Lukket PID-hastighedsregulering */
+					SP_Vel = safe_speed;
 					float pid_correction = ControlPID(SP_Vel, AverageSpeed,
 							elapsedTime);
 					float total_command_cm_s = SP_Vel + pid_correction;
@@ -418,6 +459,25 @@ int main(void) {
 						total_command_cm_s = 1.0f;
 
 					Apply_Motor_PWM(total_command_cm_s);
+				}
+			}
+
+			/* Update OLED every 200 ms (5 Hz) */
+			static uint8_t oled_tick = 0;
+			if (++oled_tick >= 2) {
+				oled_tick = 0;
+				if (oled_get_addr() == 0) {
+					static uint32_t last_oled_retry = 0;
+					if (currentTime - last_oled_retry >= 2000) {
+						last_oled_retry = currentTime;
+						oled_init();
+					}
+				}
+				if (oled_get_addr() != 0) {
+					oled_draw_car_status(Real_Dist, AverageSpeed, SP_Vel, state,
+							target_dist_cm / 100.0f, Ultrasonic_GetDistance(),
+							get_motor_pct(), get_battery_volts());
+					oled_update();
 				}
 			}
 		}
@@ -482,6 +542,10 @@ int main(void) {
 				HAL_GPIO_WritePin(IN1_PORT, IN1_PIN, GPIO_PIN_RESET);
 				HAL_GPIO_WritePin(IN2_PORT, IN2_PIN, GPIO_PIN_SET);
 				__HAL_TIM_SET_COMPARE(&MOTOR_TIMER, TIM_CHANNEL_1, pct * 144);
+			}
+			/* OLED restart / I2C re-scan command */
+			else if (rx_buffer[0] == 'i' || rx_buffer[0] == 'I') {
+				oled_init();
 			}
 
 			memset(rx_buffer, 0, sizeof(rx_buffer));
