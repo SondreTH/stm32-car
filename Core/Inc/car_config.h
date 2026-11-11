@@ -45,14 +45,23 @@ extern "C" {
 #define SERVO_PULSE_CENTER 1100   /* us, straight   */
 #define SERVO_PULSE_MAX    1500   /* us, full right */
 
-/* ---- distance run (car_drive.c). PID gains are Kp/Ki/Kd in car_drive.c ---- */
+/* ---- distance run (car_drive.c) ---- */
 #define DRIVE_PERIOD_MS   100     /* speed profile + PID step (M2.9 slide 20).
                                      Must match TIM3: 84 MHz / ((839+1) * (9999+1)) = 10 Hz */
-#define DRIVE_SPEED_CMS   18.0f   /* nominal speed Sn                          */
 #define DRIVE_RAMP_S      2.0f    /* acceleration time = deceleration time     */
 #define BUTTON_RUN_M      1.0f    /* B1 / start button: drive this far ...     */
 #define BUTTON_DELAY_MS   1000    /* ... after this long, to let go of the car */
 #define DRIVE_MAX_CMS     80.0f   /* timed run: refuse if it needs a faster Sn */
+
+/* ---- position loop (car_drive.c). Gains Kp/Ki/Kd are in car_drive.c ---- */
+#define PID_I_MAX_CMS       10.0f /* anti-windup: the I term never adds more than this (cm/s) */
+#define DRIVE_CMD_MIN_CMS   1.0f  /* commands smaller than this coast instead of driving      */
+#define DRIVE_MOVING_CMS    1.5f  /* slower than this (2 counts per step) = standing still    */
+#define DRIVE_SETTLE_S      3.0f  /* after the profile: at most this long to reach the target */
+#define DRIVE_MAX_REVERSALS 1     /* settling: change direction at most this often            */
+#define KICK_RAMP_PCT_S     20.0f /* kick-start: add this much % per second while still standing */
+#define DRIVE_STALL_S       2.5f  /* motor driven this long without counts: give up           */
+#define ENC_FAULT_CM        3.0f  /* this far the wrong way: encoder direction is wrong       */
 
 /* ---- obstacle stop (HC-SR04) ---- */
 #define SONAR_TICK_US     10      /* one TIM3 count = (839+1) / 84 MHz = 10 us  */
@@ -60,17 +69,17 @@ extern "C" {
 #define OBST_STOP_CM      30.0f   /* closer than this: brake and pause the run  */
 #define OBST_CLEAR_CM     35.0f   /* further than this: continue the run        */
 
-/* motor % for a speed in cm/s: an offset that gets the car moving, plus a slope.
- * Tuned on the car as 6500 + 85 per cm/s out of a 14400-count PWM period. */
-#define MOTOR_MIN_PCT      (6500.0f / 144.0f)   /* 45.1 %          */
-#define MOTOR_PCT_PER_CMS  (85.0f / 144.0f)     /* 0.59 % per cm/s */
-#define MANUAL_PCT         60.0f                /* f / b commands  */
+#define MANUAL_PCT        60.0f   /* f / b commands */
 
-/* ---- battery: battery+ -> 10k -> PA4 -> 3.3k -> GND ---- */
-#define BATT_DIVIDER    4.03f   /* (10k + 3.3k) / 3.3k, trim against a multimeter */
-
-/* ---- calibration ---- */
-extern float COUNTS_PER_METER;
+/* ---- values that commands can change (defaults in car_config.c) ---- */
+extern float COUNTS_PER_METER;    /* M   encoder counts per metre                          */
+extern float DRIVE_SPEED_CMS;     /* vn  nominal speed Sn of a run without a set time      */
+extern float POS_TOL_CM;          /* tol a run is done within this distance of the target  */
+/* motor % for a speed in cm/s: an offset that keeps the car rolling, plus a slope */
+extern float MOTOR_START_PCT;     /* ms  needed to get the car moving from standstill      */
+extern float MOTOR_MIN_PCT;       /* mo  offset once it rolls                              */
+extern float MOTOR_PCT_PER_CMS;   /* mg  slope, % per cm/s                                 */
+extern float BATT_DIVIDER;        /* vb  battery volts per volt on PA4                     */
 
 #ifdef __cplusplus
 }

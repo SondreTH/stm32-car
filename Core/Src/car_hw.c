@@ -59,8 +59,9 @@ void servo_set_us(uint32_t us) {
 }
 
 /* --------------------------------------------------------------- battery */
-/* battery+ -> 10k -> PA4 -> 3.3k -> GND. Average of 8 conversions, ~0.1 ms. */
-float battery_volts(void) {
+/* battery+ -> R1 -> PA4 -> R2 -> GND (BATT_DIVIDER in car_config.c).
+ * Average of 8 conversions, ~0.3 ms. */
+float battery_pin_volts(void) {
   uint32_t sum = 0;
   int n = 0;
   for (int i = 0; i < 8; i++) {
@@ -68,8 +69,10 @@ float battery_volts(void) {
     if (HAL_ADC_PollForConversion(&hadc1, 2) == HAL_OK) { sum += HAL_ADC_GetValue(&hadc1); n++; }
   }
   HAL_ADC_Stop(&hadc1);
-  return n ? (float)sum / n * (3.3f / 4095.0f) * BATT_DIVIDER : 0.0f;
+  return n ? (float)sum / n * (3.3f / 4095.0f) : 0.0f;
 }
+
+float battery_volts(void) { return battery_pin_volts() * BATT_DIVIDER; }
 
 /* --------------------------------------------------------------- buttons */
 /* both pull the pin to GND when pressed */

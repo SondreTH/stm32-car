@@ -33,7 +33,8 @@ extern volatile float sonarCm;      /* last distance, SONAR_MAX_CM = nothing */
 void     sonar_trigger(void);
 void     sonar_echo_edge(void);
 
-float    battery_volts(void);        /* battery voltage from the PA4 divider */
+float    battery_pin_volts(void);    /* voltage on PA4, after the divider */
+float    battery_volts(void);        /* battery voltage: PA4 times BATT_DIVIDER */
 bool     start_pressed(void);        /* blue button B1 or the start button on PB0 */
 
 /* I2C1: put the 7-bit addresses that answer in found[] (up to max).

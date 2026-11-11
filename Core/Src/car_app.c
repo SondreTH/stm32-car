@@ -3,9 +3,13 @@
  *
  * Commands work on the USB virtual COM port (115200) and Bluetooth (9600).
  * One letter, then an optional number ("d1.2" and "D 1.2" are the same):
- *   d <m>     distance run: speed profile + PID (car_drive.c)
+ *   d <m>     distance run: speed profile + position PID (car_drive.c),
+ *             negative = in reverse
  *   tt <s>    run time (0 = nominal speed)  ta / td <s>  accel / decel time
+ *   vn <cm/s> nominal speed                 tol <cm>  how close counts as there
  *   kp ki kd <gain>  PID gains
+ *   ms mo mg  motor: start %, rolling offset %, % per cm/s
+ *   vb <V>    battery voltage from a multimeter: calibrates the reading
  *   v <cm/s>  constant speed, open loop    s   stop (coast)
  *   f / b     forward / back at 60 %       1..6  50..100 %, same direction
  *   l c r     steer left / centre / right
@@ -28,6 +32,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <math.h>
 
 static uint32_t telemPeriodMs = 0, telemLastMs = 0;
 static bool     oledOn = false;
@@ -36,7 +41,7 @@ static bool     armed = false, btnWas = false;   /* button pressed, run starts a
 static uint32_t armedMs = 0;
 
 static void print_help(void) {
-  say("d <m>     distance run, e.g. d1.2     s  stop");
+  say("d <m>     distance run, e.g. d1.2 (d-0.5 = reverse)   s  stop");
   say("v <cm/s>  constant speed, open loop   1..6  50..100 % same direction");
   lb_clear(); lb_str("f / b     forward / back at "); lb_float(MANUAL_PCT, 0);
   lb_str(" %   l c r  steer left / centre / right"); lb_send(false);
@@ -44,7 +49,10 @@ static void print_help(void) {
   say("M <cpm>   counts per metre            T <hz>  telemetry (0 = off)");
   say("G         settings   I  I2C scan, restart the OLED   ?  help");
   say("tt <s>    run time, 0 = nominal speed  ta <s> / td <s>  accel / decel time");
+  say("vn <cm/s> nominal speed               tol <cm>  stop this close to the target");
   say("kp ki kd <gain>  PID gains, e.g. kp 3");
+  say("ms / mo <pct>  motor % to start / to keep rolling   mg <pct per cm/s>");
+  say("vb <volts>  battery voltage from a multimeter, calibrates the reading");
   lb_clear(); lb_str("B1 / start button: "); lb_float(BUTTON_RUN_M, 2); lb_str(" m run after ");
   lb_float(BUTTON_DELAY_MS / 1000.0f, 1); lb_str(" s"); lb_send(false);
 }
@@ -53,8 +61,13 @@ static void print_settings(void) {
   lb_clear(); lb_str("CPM="); lb_float(COUNTS_PER_METER, 1);
   lb_str(" Kp="); lb_float(Kp, 2); lb_str(" Ki="); lb_float(Ki, 2); lb_str(" Kd="); lb_float(Kd, 2);
   lb_str(" tt="); lb_float(run_T, 1); lb_str(" ta="); lb_float(run_ta, 1); lb_str(" td="); lb_float(run_td, 1);
+  lb_str(" vn="); lb_float(DRIVE_SPEED_CMS, 1); lb_str(" tol="); lb_float(POS_TOL_CM, 1);
+  lb_send(false);
+  lb_clear(); lb_str("motor ms="); lb_float(MOTOR_START_PCT, 1); lb_str(" mo="); lb_float(MOTOR_MIN_PCT, 1);
+  lb_str(" mg="); lb_float(MOTOR_PCT_PER_CMS, 2);
   lb_str(" sonar="); lb_float(sonarCm, 0); lb_str("cm");
-  lb_str(" batt="); lb_float(battery_volts(), 2); lb_str("V");
+  lb_str(" batt="); lb_float(battery_volts(), 2); lb_str("V (PA4 "); lb_float(battery_pin_volts(), 2);
+  lb_str("V x "); lb_float(BATT_DIVIDER, 2); lb_str(")");
   lb_str(" counts="); lb_int(encoder_count());
   lb_send(false);
 }
@@ -90,7 +103,7 @@ static void oled_start(void) {
 /* What the screen shows. Redrawn from scratch at 5 Hz: change freely.
  * Two-colour modules: rows 0-15 are yellow, 16-63 blue, so nothing crosses y = 16. */
 static void oled_draw_status(void) {
-  static const char *const phase[] = { "IDLE", "ACCEL", "CRUISE", "DECEL" };
+  static const char *const phase[] = { "IDLE", "ACCEL", "CRUISE", "DECEL", "SETTLE" };
   oled_clear();
   oled_text(0, 3, "Ninjago", 1);
   int x = oled_float(54, 3, battery_volts(), 1, 1);
@@ -105,7 +118,7 @@ static void oled_draw_status(void) {
     x = oled_float(x, 18, (int32_t)(BUTTON_DELAY_MS - (HAL_GetTick() - armedMs)) / 1000.0f, 1, 1);
     oled_text(x, 18, "s", 1);
   } else if (state != 0 && obstacle) oled_text(0, 18, "OBSTACLE", 1);
-  else if (state >= 1 && state <= 3) oled_text(0, 18, phase[state], 1);
+  else if (state >= DRIVE_ACCEL && state <= DRIVE_SETTLE) oled_text(0, 18, phase[state], 1);
   else oled_text(0, 18, motorPct != 0 ? "MANUAL" : phase[0], 1);
   if (armed || state != 0) {
     x = oled_float(72, 18, armed ? BUTTON_RUN_M : target_dist_cm / 100.0f, 2, 1);
@@ -163,6 +176,26 @@ static void button_poll(void) {
 /* any manual command ends a run and a pending button start */
 static void manual(void) { armed = false; drive_cancel(); }
 
+/* the number after the letters of a command: "tol 1.5" -> 1.5, 0 if there is none */
+static float number_after(const char *s) {
+  while (isalpha((unsigned char)*s)) s++;
+  return strtof(s, NULL);
+}
+
+/* a run just ended: say how it went */
+static void report_run(int result) {
+  static const char *const why[] = { "", "DONE", "DONE, not within tol in time", "DONE, stopped after one swing back",
+    "ERR motor on but no encoder counts: wheel blocked or encoder unplugged?",
+    "ERR encoder counts the wrong way: change ENCODER_INVERT in car_config.h" };
+  lb_clear(); lb_str(why[result]);
+  if (result <= RUN_SWINGS) {
+    float err = Real_Dist - target_dist_cm;
+    lb_str(": "); lb_float(Real_Dist, 1); lb_str(" cm, ");
+    lb_str(err < 0 ? "short by " : "past by "); lb_float(fabsf(err), 1); lb_str(" cm");
+  }
+  lb_send(false);
+}
+
 static void handle_command(char *line) {
   while (*line == ' ' || *line == '\t') line++;
   if (!*line) return;
@@ -171,21 +204,48 @@ static void handle_command(char *line) {
 
   /* two-letter settings: tt/ta/td (run times) and kp/ki/kd (PID gains) */
   char c2 = (char)tolower((unsigned char)line[1]);
-  float a2 = c2 ? strtof(line + 2, NULL) : 0;
+  float a2 = number_after(line);
   if (c == 'T' && (c2 == 't' || c2 == 'a' || c2 == 'd')) {
     if (a2 < 0) { say("ERR time in seconds"); return; }
     if (c2 == 't') run_T = a2; else if (c2 == 'a') run_ta = a2; else run_td = a2;
     print_settings();
     return;
   }
+  if (c == 'T' && c2 == 'o') {   /* tol */
+    if (a2 < 0.2f) { say("ERR tolerance in cm, at least 0.2"); return; }
+    POS_TOL_CM = a2;
+    print_settings();
+    return;
+  }
   if (c == 'K' && (c2 == 'p' || c2 == 'i' || c2 == 'd')) {
+    if (a2 < 0) { say("ERR gains are positive"); return; }
     if (c2 == 'p') Kp = a2; else if (c2 == 'i') Ki = a2; else Kd = a2;
     print_settings();
     return;
   }
+  if (c == 'M' && (c2 == 's' || c2 == 'o' || c2 == 'g')) {
+    if (a2 <= 0 || (c2 != 'g' && a2 > 100)) { say("ERR ms / mo in % (1..100), mg in % per cm/s"); return; }
+    if (c2 == 's') MOTOR_START_PCT = a2; else if (c2 == 'o') MOTOR_MIN_PCT = a2; else MOTOR_PCT_PER_CMS = a2;
+    print_settings();
+    return;
+  }
+  if (c == 'V' && c2 == 'n') {
+    if (a2 < 2 || a2 > DRIVE_MAX_CMS) { say("ERR nominal speed in cm/s"); return; }
+    DRIVE_SPEED_CMS = a2;
+    print_settings();
+    return;
+  }
+  if (c == 'V' && c2 == 'b') {   /* the multimeter says a2 volts: work out the divider */
+    float pin = battery_pin_volts();
+    if (a2 < 5 || pin < 0.2f) { say("ERR vb <battery volts>, and PA4 must see the battery"); return; }
+    BATT_DIVIDER = a2 / pin;
+    lb_clear(); lb_str("OK BATT_DIVIDER = "); lb_float(BATT_DIVIDER, 2);
+    lb_str(": copy it to car_config.c"); lb_send(false);
+    return;
+  }
 
   if (c == 'D') {
-    if (a1 > 0.01f) {
+    if (fabsf(a1) >= 0.01f) {
       armed = false;
       if (drive_start(a1)) {
         lb_clear(); lb_str("OK run "); lb_float(a1, 2); lb_str(" m in "); lb_float(T, 1); lb_str(" s at ");
@@ -194,7 +254,7 @@ static void handle_command(char *line) {
         lb_clear(); lb_str("ERR does not fit: need tt >= ta + td and speed <= "); lb_float(DRIVE_MAX_CMS, 0);
         lb_str(" cm/s"); lb_send(false);
       }
-    } else say("ERR distance in metres, e.g. d1.2");
+    } else say("ERR distance in metres, e.g. d1.2 or d-0.5");
   }
   else if (c == 'V') { manual(); Set_Speed_cm_s(a1); say("OK speed (open loop)"); }
   else if (c == 'F') { manual(); motor_set(MANUAL_PCT); say("OK forward"); }
@@ -235,6 +295,8 @@ void App_Init(void) {
 void App_Loop(void) {
   comms_poll(handle_command);
   button_poll();
+  int result = drive_result();
+  if (result != RUN_NONE) report_run(result);
   /* the control step runs in the TIM3 interrupt; redraw the OLED (~25 ms)
    * after every second step */
   static uint32_t lastStep = 0;
