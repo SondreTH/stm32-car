@@ -1,7 +1,7 @@
 # Team 7 (Ninjago) car: Activity 2.6
 
-This branch, `oled-timer-pid-timed-obstacle-bluetooth`, is the `oled` branch
-plus everything Activity 2.6 (position and speed control loop) asks for:
+This branch, `oled`, is the most up-to-date car firmware. It has everything
+Activity 2.6 (position and speed control loop) asks for:
 
 - **Time interrupt:** the 100 ms control step runs in the TIM3 interrupt.
 - **Position PID:** the PID follows the reference position from the
@@ -14,13 +14,13 @@ plus everything Activity 2.6 (position and speed control loop) asks for:
 
 The details are in
 [Activity 2.6: what was added](#activity-26-position-control-timer-interrupt-obstacle-stop)
-below. Everything from `oled` is still here:
+below. It is built on:
 
 - **The OLED display** (from `activity2.6`) on I2C1, showing the run,
   speed, motor % and battery voltage at 5 Hz.
 - **Hakon's car code** (from `hakon-backup`, the `Hakons_leg` project):
   - distance runs with a trapezoidal speed profile (M2.9) and a PID speed
-    loop (M2.10), which this branch turns into a position loop;
+    loop (M2.10), which Activity 2.6 turned into a position loop;
   - the Bluetooth commands;
   - the steering servo;
   - the start buttons.
@@ -44,7 +44,7 @@ Then, in your `stm32-car` folder:
 2. Run:
    ```
    git fetch
-   git switch oled-timer-pid-timed-obstacle-bluetooth
+   git switch oled
    ```
 3. In CubeIDE, right-click `stm32-car` and choose **Refresh** (F5).
 4. Go to **Project → Clean…**, select `stm32-car`, then click **Clean**.
@@ -69,13 +69,13 @@ In generated files, only write code between `USER CODE BEGIN` and
 | PB4 | CN10-27 | `MOTOR_IN1` | L298N IN1 |
 | PB5 | CN10-29 | `MOTOR_IN2` | L298N IN2 |
 | PA10 | CN10-33 | `BT_RX` | Bluetooth TXD |
-| PB8 | CN10-3 | `I2C_SCL` | OLED SCK/SCL |
-| PB9 | CN10-5 | `I2C_SDA` | OLED SDA |
+| PB8 | CN10-3 | `I2C_SCL` | MPU-6050 SCL and OLED SCK/SCL |
+| PB9 | CN10-5 | `I2C_SDA` | MPU-6050 SDA and OLED SDA |
 
 Power the OLED from 3.3 V (VDD/VCC) and GND.
 
-The MPU-6050 (PC1 SCL, PC0 SDA) is wired but not used: PC0/PC1 have no
-hardware I2C.
+The OLED (0x3C) and the MPU-6050 (0x68) share the I2C1 wires, so `I` should
+list both. No code reads the MPU-6050 yet.
 
 ## Commands (USB 115200 / Bluetooth 9600, line ending LF)
 
@@ -109,7 +109,7 @@ You can also tune `Kp`, `Ki` and `Kd` live.
 
 ## Activity 2.6: position control, timer interrupt, obstacle stop
 
-What this branch adds on top of `oled`:
+What Activity 2.6 added on top of the OLED and Hakon's code:
 
 - **Timer interrupt (TIM3).** The 100 ms control step now runs in
   `HAL_TIM_PeriodElapsedCallback()` (`main.c`, USER CODE 4) instead of

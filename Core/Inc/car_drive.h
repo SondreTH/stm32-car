@@ -15,8 +15,8 @@
 extern "C" {
 #endif
 
-extern int state;                      /* 0 = off, 1 = accelerate, 2 = cruise, 3 = decelerate */
-extern float time_ctl, T, Sn, target_dist_cm;
+extern volatile int state;             /* 0 = off, 1 = accelerate, 2 = cruise, 3 = decelerate */
+extern volatile float time_ctl, T, Sn, target_dist_cm;   /* set in the TIM3 interrupt */
 extern volatile float SP_Vel;          /* speed setpoint */
 extern volatile float Real_Dist;       /* distance driven since the start of the run */
 extern volatile float Speed_CM_SEC, AverageSpeed;

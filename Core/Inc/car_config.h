@@ -15,14 +15,14 @@
  *   PB4  GPIO out   MOTOR_IN1    L298N IN1        (CN10-27)
  *   PB5  GPIO out   MOTOR_IN2    L298N IN2        (CN10-29)
  *   PB6  GPIO out   SONAR_TRIG   HC-SR04 TRIG     (CN10-17)
- *   PB8  I2C1_SCL   I2C_SCL      OLED SCK/SCL     (CN10-3, Arduino D15)
- *   PB9  I2C1_SDA   I2C_SDA      OLED SDA         (CN10-5, Arduino D14)
+ *   PB8  I2C1_SCL   I2C_SCL      MPU-6050 + OLED  (CN10-3, Arduino D15)
+ *   PB9  I2C1_SDA   I2C_SDA      MPU-6050 + OLED  (CN10-5, Arduino D14)
  *   PB10 TIM2_CH3   SERVO_PWM    servo signal     (CN10-25)
  *   PC13 GPIO in    B1           blue user button
  *   PA2/PA3 USART2  ST-LINK virtual COM port (USB), 115200
  *   TIM3 (no pin)                control loop interrupt every 100 ms
- * The MPU-6050 (PC1 SCL, PC0 SDA) is wired but not set up: those pins
- * have no hardware I2C.
+ * The OLED (0x3C) and the MPU-6050 (0x68) share I2C1. No code reads the
+ * MPU-6050 yet.
  * ===================================================================== */
 #ifndef CAR_CONFIG_H
 #define CAR_CONFIG_H

@@ -19,20 +19,20 @@
 #include <math.h>
 
 /* Speed Profile Variables (M2.9 PDF) */
-float time_ctl = 0.0f;       // Current elapsed time tc (seconds)
-float Sn = 18.0f;            // Nominal Speed in cm/s
+volatile float time_ctl = 0.0f; // Current elapsed time tc (seconds)
+volatile float Sn = 18.0f;   // Nominal Speed in cm/s
 float t1 = 2.0f;             // Acceleration time 'a' (seconds)
 float d_ramp = 2.0f;         // Deceleration time 'd' (seconds)
 float t2 = 8.0f;             // Time when deceleration starts: T - d (seconds)
-float T = 10.0f;             // Total movement time (seconds)
+volatile float T = 10.0f;    // Total movement time (seconds)
 volatile float SP_Vel = 0.0f;         // Speed setpoint command (cm/s)
-int state = 0; // 0 = Off, 1 = Area 1 (Accel), 2 = Area 2 (Cruise), 3 = Area 3 (Decel)
+volatile int state = 0; // 0 = Off, 1 = Area 1 (Accel), 2 = Area 2 (Cruise), 3 = Area 3 (Decel)
 
 /* Encoder & Distance Measurement Variables */
 volatile int32_t position = 0;        // Encoder counts since the start, either direction
 int32_t last_pos = 0;
 volatile float Real_Dist = 0.0f;      // Traveled distance in cm
-float target_dist_cm = 0.0f;          // Target distance in cm
+volatile float target_dist_cm = 0.0f; // Target distance in cm
 volatile float Speed_CM_SEC = 0.0f;   // Raw speed in cm/s
 volatile float AverageSpeed = 0.0f;   // Filtered speed (0.5 * prev + 0.5 * raw)
 
