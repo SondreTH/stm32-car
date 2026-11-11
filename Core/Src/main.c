@@ -69,42 +69,83 @@ char rx_buffer[RX_BUFFER_SIZE];
 uint8_t rx_index = 0;
 volatile uint8_t command_ready = 0;
 
-/* Speed Profile Variables (M2.9 PDF) */
-float time_ctl = 0.0f;       // Current elapsed time tc (seconds)
-float Sn = 18.0f;            // Nominal Speed in cm/s
-float t1 = 2.0f;             // Acceleration time 'a' (seconds)
-float d_ramp = 2.0f;         // Deceleration time 'd' (seconds)
-float t2 = 8.0f;             // Time when deceleration starts: T - d (seconds)
-float T = 10.0f;             // Total movement time (seconds)
-volatile float SP_Vel = 0.0f;         // Speed setpoint command (cm/s)
-int state = 0; // 0 = Off, 1 = Area 1 (Accel), 2 = Area 2 (Cruise), 3 = Area 3 (Decel), 4 = Constant Velocity Mode
+/* =========================================================================================
+ * PID CONTROLLER & REFERENCE TRAJECTORY ARCHITECTURE
+ * =========================================================================================
+ *
+ * 1. TRANSFER FUNCTION & SYSTEM MODELING:
+ *    - Open-Loop Velocity Plant:
+ *        G_v(s) = V(s) / U(s) = K / (tau * s + 1)   [(cm/s) per % PWM]
+ *    - Open-Loop Position Plant:
+ *        G_p(s) = X(s) / U(s) = G_v(s) / s = K / [s * (tau * s + 1)]
+ *
+ *    Because Position is the time-integral of Velocity (1/s), the position plant is a Type 1
+ *    system. This means a P or PD controller inherently has ZERO steady-state position error!
+ *
+ * 2. SIGNALS CONNECTED TO THE PID CONTROLLER:
+ *    [INPUT - SETPOINT]       SP_Pos (cm)     : Integrated from reference velocity profile SP_Vel.
+ *    [INPUT - PROCESS VAR]    Real_Dist (cm)  : Measured from TIM5 hardware encoder ticks.
+ *                                               No differentiation = zero quantization noise!
+ *    [INPUT - TIME STEP]      elapsedTime (s) : Delta t of 100 ms control loop.
+ *    [INPUT - TUNING GAINS]   Kp, Ki, Kd      : Volatile floats tunable live via STM32CubeMonitor.
+ *    [FEED-FORWARD]           SP_Vel (cm/s)   : Nominal speed command from motion profile.
+ *    [OUTPUT - CORRECTION]    pid_correction  : Corrective speed added to feed-forward (cm/s).
+ *    [OUTPUT - TOTAL COMMAND] total_cmd_cm_s  : Feed-forward + PID correction (cm/s).
+ *    [OUTPUT - ACTUATOR]      Apply_Motor_PWM : Converts total_cmd_cm_s to TIM1 PWM counts (PA8).
+ * ========================================================================================= */
 
-/* Encoder & Distance Measurement Variables */
-volatile int32_t position = 0;
-int32_t last_pos = 0;
-const float ticks_per_cm = 11.7f; // 1170 ticks per meter = 11.70 ticks per cm
-volatile float Real_Dist = 0.0f;            // Traveled distance in cm
-float target_dist_cm = 0.0f;       // Target distance in cm
-volatile float Speed_CM_SEC = 0.0f;         // Raw speed in cm/s
-volatile float AverageSpeed = 0.0f;   // Filtered speed (0.5 * prev + 0.5 * raw)
+/* Motion Profile & Reference Trajectory Variables */
+float time_ctl = 0.0f;              // Current elapsed profile time (seconds)
+float Sn = 18.0f;                   // Nominal Speed in cm/s
+float t1 = 2.0f;                    // Acceleration ramp time 'a' (seconds)
+float d_ramp = 2.0f;                // Deceleration ramp time 'd' (seconds)
+float t2 = 8.0f;                    // Deceleration start time: T - d (seconds)
+float T = 10.0f;                    // Total profile movement time (seconds)
+float target_dist_cm = 0.0f;        // Target distance in cm (for distance command 'd')
+int state = 0;                      // 0=Off/Idle, 1=Accel, 2=Cruise, 3=Decel, 4=Constant Velocity Mode
 
-/* PID Control Variables (M2.10 PDF) */
-uint32_t previousTime = 0;
-float elapsedTime = 0.0f;
-float error = 0.0f;
-float lastError = 0.0f;
-float ErrorAcum = 0.0f;
-float ErrorRate = 0.0f;
+/* 1. PID SETPOINT SIGNALS */
+volatile float SP_Vel = 0.0f;       // Feed-Forward Velocity Setpoint (cm/s)
+volatile float SP_Pos = 0.0f;       // Reference Position Setpoint (cm) -> [PID INPUT: Setpoint]
 
-/* Gains (tuned in cm/s domain) - declared volatile for CubeMonitor tuning */
+/* 2. PID PROCESS VARIABLE SIGNALS (Hardware Wheel Encoder on TIM5) */
+volatile int32_t position = 0;      // Raw cumulative encoder ticks from TIM5
+int32_t last_pos = 0;               // Previous tick count for speed telemetry
+const float ticks_per_cm = 11.7f;   // Calibration: 1170 ticks/meter = 11.70 ticks/cm
+volatile float Real_Dist = 0.0f;    // Measured vehicle distance (cm) -> [PID INPUT: Process Variable]
+volatile float Speed_CM_SEC = 0.0f; // Raw measured speed (cm/s) for telemetry & OLED
+volatile float AverageSpeed = 0.0f; // Filtered speed (cm/s) for display & safety checks
+
+/* 3. PID CONTROLLER INTERNAL SIGNALS (Logged in STM32CubeMonitor) */
+uint32_t previousTime = 0;          // Loop timestamp (ms)
+float elapsedTime = 0.0f;           // Loop dt (seconds) -> [PID INPUT: dt]
+volatile float error = 0.0f;        // Position error: (SP_Pos - Real_Dist) [cm]
+volatile float lastError = 0.0f;    // Previous error for derivative [cm]
+volatile float ErrorAcum = 0.0f;    // Integral of error [cm * s]
+volatile float ErrorRate = 0.0f;    // Derivative of error: d(error)/dt [cm/s]
+volatile float pid_correction = 0.0f;     // Corrective velocity output from PID [cm/s]
+volatile float total_command_cm_s = 0.0f; // Feed-forward + PID correction [cm/s]
+
+/* 4. PID GAINS (Tunable live in STM32CubeMonitor) */
+/* Set to 0.0f initially so you can record the open-loop step response in CubeMonitor.
+ * When Kp=Ki=Kd=0, the car drives purely via Feed-Forward (SP_Vel).
+ * Typical starting values once K and tau are measured:
+ *   Kp = 1.0f to 2.5f  [(cm/s) per cm of position error]
+ *   Ki = 0.0f to 0.2f  [(cm/s) per (cm*s)] - plant has natural 1/s integrator!
+ *   Kd = 0.05f to 0.2f [(cm/s) per (cm/s) error rate] - damps overshoot
+ */
 volatile float Kp = 0.0f;
 volatile float Ki = 0.0f;
 volatile float Kd = 0.0f;
 
-/* Function to enter distance with computer (CubeMonitor trigger) */
+/* 5. MOTOR CALIBRATION / FEED-FORWARD PARAMETERS */
+volatile float min_pwm_offset = 7200.0f; // Motor breakaway deadband (~50% duty: 7200 / 14400)
+volatile float pwm_per_cm_s = 80.0f;     // Feed-forward slope (~80 counts per cm/s)
+
+/* STM32CubeMonitor trigger for distance test */
 volatile float test_dist_m = 0.0f;
 
-/* Stop 30 cm before hitting anything */
+/* Ultrasonic sensor polling interval timer */
 uint32_t last_sonar_tick = 0;
 
 /* USER CODE END PV */
@@ -138,9 +179,15 @@ void Start_Motion_Profile(float dist_m, float nominal_cm_s, float accel_s) {
 	Speed_CM_SEC = 0.0f;
 	AverageSpeed = 0.0f;
 
-	/* Reset PID state (M2.10 Slide 11) */
-	ErrorAcum = 0.0f;
+	/* Reset PID reference trajectory and controller states */
+	SP_Pos = 0.0f;
+	SP_Vel = 0.0f;
+	error = 0.0f;
 	lastError = 0.0f;
+	ErrorAcum = 0.0f;
+	ErrorRate = 0.0f;
+	pid_correction = 0.0f;
+	total_command_cm_s = 0.0f;
 	previousTime = HAL_GetTick();
 
 	/* Convert target distance from meters to cm (PDF uses cm and cm/s) */
@@ -176,33 +223,41 @@ void Start_Motion_Profile(float dist_m, float nominal_cm_s, float accel_s) {
 }
 
 /**
- * @brief Discrete PID Controller (M2.10 Slide 11 & 21)
- * @return Control output (in cm/s command space)
+ * @brief Discrete Position PID Controller
+ *
+ * SIGNALS CONNECTED TO THIS FUNCTION:
+ *   [INPUT]  sp_pos     : Reference trajectory position (SP_Pos) [cm]
+ *   [INPUT]  pv_pos     : Measured position from encoder (Real_Dist) [cm]
+ *   [INPUT]  dt         : Time interval (elapsedTime) [seconds]
+ *   [GAINS]  Kp, Ki, Kd : Tuning gains (volatile floats, tunable live via CubeMonitor)
+ *   [OUTPUT] return     : Corrective velocity adjustment (pid_correction) [cm/s]
+ *
+ * Transfer Function Formulation:
+ *   e(t) = sp_pos(t) - pv_pos(t)
+ *   u(t) = Kp * e(t) + Ki * integral(e(t)*dt) + Kd * (de(t)/dt)
  */
-float ControlPID(float setpoint, float input, float dt) {
-	/* 1. Obtain the error: Setpoint - process variable measure (sensor) */
-	error = setpoint - input;
+float ControlPID(float sp_pos, float pv_pos, float dt) {
+	/* 1. Calculate Position Error (cm) */
+	error = sp_pos - pv_pos;
 
-	/* 2. Obtain accumulated error (Integral term) */
-	ErrorAcum = ErrorAcum + (error * dt);
+	/* 2. Calculate Integral Term (cm * s) with anti-windup clamping */
+	ErrorAcum += (error * dt);
+	if (ErrorAcum > 15.0f)
+		ErrorAcum = 15.0f;
+	if (ErrorAcum < -15.0f)
+		ErrorAcum = -15.0f;
 
-	/* Anti-windup limit on integral term (tightened to prevent overshoot) */
-	if (ErrorAcum > 25.0f)
-		ErrorAcum = 25.0f;
-	if (ErrorAcum < -25.0f)
-		ErrorAcum = -25.0f;
-
-	/* 3. Obtain derivative error: ErrorRate */
-	if (dt > 0.0f) {
+	/* 3. Calculate Derivative Term: d(error)/dt (cm/s) */
+	if (dt > 0.001f) {
 		ErrorRate = (error - lastError) / dt;
 	} else {
 		ErrorRate = 0.0f;
 	}
 
-	/* 4. Compute manipulation value according to PID equation */
+	/* 4. Compute PID corrective output (cm/s adjustment) */
 	float output = (Kp * error) + (Ki * ErrorAcum) + (Kd * ErrorRate);
 
-	/* 5. Update variables for next iteration */
+	/* 5. Store current error for next derivative computation */
 	lastError = error;
 
 	return output;
@@ -210,7 +265,9 @@ float ControlPID(float setpoint, float input, float dt) {
 
 /**
  * @brief Converts control speed command (cm/s) + PID correction into TIM1 PWM
- *        Includes the minimum motor voltage offset (M2.9 Slide 36-38 & M2.10 Slide 22)
+ *        Connected to: TIM1 Channel 1 (PWM on PA8) and L298N direction pins (PB4, PB5)
+ *
+ * Calibration: PWM = min_pwm_offset + (control_cm_s * pwm_per_cm_s)
  */
 void Apply_Motor_PWM(float control_cm_s) {
 	if (control_cm_s <= 0.2f || state == 0) {
@@ -223,10 +280,6 @@ void Apply_Motor_PWM(float control_cm_s) {
 	HAL_GPIO_WritePin(IN1_PORT, IN1_PIN, GPIO_PIN_RESET);
 	HAL_GPIO_WritePin(IN2_PORT, IN2_PIN, GPIO_PIN_SET);
 
-	/* Lower base offset (~45% duty) so PID can control slow 18 cm/s speeds */
-	const float min_pwm_offset = 7200.0f;
-	const float pwm_per_cm_s = 80.0f;
-
 	float cv_pwm = min_pwm_offset + (control_cm_s * pwm_per_cm_s);
 
 	/* Clamp between 0 and 14400 (100% duty cycle) */
@@ -235,15 +288,19 @@ void Apply_Motor_PWM(float control_cm_s) {
 	if (cv_pwm < 0.0f)
 		cv_pwm = 0.0f;
 
-	__HAL_TIM_SET_COMPARE(&MOTOR_TIMER, TIM_CHANNEL_1, (uint32_t )cv_pwm);
+	__HAL_TIM_SET_COMPARE(&MOTOR_TIMER, TIM_CHANNEL_1, (uint32_t) cv_pwm);
 }
 
 void Set_Speed_cm_s(float target_cm_s) {
 	if (target_cm_s <= 0.0f) {
 		state = 0;
 		SP_Vel = 0.0f;
-		ErrorAcum = 0.0f;
+		SP_Pos = Real_Dist;
+		error = 0.0f;
 		lastError = 0.0f;
+		ErrorAcum = 0.0f;
+		pid_correction = 0.0f;
+		total_command_cm_s = 0.0f;
 		HAL_GPIO_WritePin(IN1_PORT, IN1_PIN, GPIO_PIN_RESET);
 		HAL_GPIO_WritePin(IN2_PORT, IN2_PIN, GPIO_PIN_RESET);
 		__HAL_TIM_SET_COMPARE(&MOTOR_TIMER, TIM_CHANNEL_1, 0);
@@ -253,10 +310,14 @@ void Set_Speed_cm_s(float target_cm_s) {
 		target_cm_s = 50.0f;
 	}
 	Sn = target_cm_s;
-	SP_Vel = target_cm_s;
-	ErrorAcum = 0.0f;
+	SP_Vel = 0.0f;       // Start ramp smoothly
+	SP_Pos = Real_Dist;  // Anchor reference position to current position to avoid step jump
+	error = 0.0f;
 	lastError = 0.0f;
-	state = 4; /* State 4 = Constant Velocity Closed-Loop Mode */
+	ErrorAcum = 0.0f;
+	pid_correction = 0.0f;
+	total_command_cm_s = 0.0f;
+	state = 4;           /* State 4 = Constant Velocity Closed-Loop Mode */
 }
 
 float get_battery_volts(void) {
@@ -363,8 +424,10 @@ int main(void) {
 	/* Infinite loop */
 	/* USER CODE BEGIN WHILE */
 
-	/* Initialize timer reference before entering loop */
+	/* Initialize timer reference and position before entering loop */
 	previousTime = HAL_GetTick();
+	SP_Pos = 0.0f;
+	Real_Dist = 0.0f;
 
 	while (1) {
 		/* Trigger sensor every 60 ms */
@@ -398,11 +461,14 @@ int main(void) {
 		if (state != 0 && Ultrasonic_IsObstacleConfirmed()) {
 			state = 0;             // Cancel profile if running
 			SP_Vel = 0.0f;
+			SP_Pos = Real_Dist;
 			ErrorAcum = 0.0f;
+			pid_correction = 0.0f;
+			total_command_cm_s = 0.0f;
 			Apply_Motor_PWM(0.0f);
 		}
 
-		/* Execute Speed Profile & PI Controller every 100 ms (0.1 sec) */
+		/* Execute Position Tracking PID & Reference Trajectory every 100 ms (0.1 sec) */
 		uint32_t currentTime = HAL_GetTick();
 		if ((currentTime - previousTime) >= 100) {
 			elapsedTime = (float) (currentTime - previousTime) / 1000.0f;
@@ -413,7 +479,7 @@ int main(void) {
 				elapsedTime = 0.1f;
 			}
 
-			/* Measure speed in cm/s */
+			/* Measure speed in cm/s for telemetry / OLED display */
 			int32_t delta_ticks = position - last_pos;
 			last_pos = position;
 
@@ -424,6 +490,9 @@ int main(void) {
 				HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin); // Blinker med 5 Hz under kørsel
 				time_ctl += elapsedTime;
 
+				/* -------------------------------------------------------------
+				 * STEP 1: CALCULATE FEED-FORWARD VELOCITY SETPOINT (SP_Vel)
+				 * ------------------------------------------------------------- */
 				switch (state) {
 				case 1: /* Acceleration ramp */
 					SP_Vel = (time_ctl * Sn) / t1;
@@ -446,37 +515,76 @@ int main(void) {
 					break;
 
 				case 4: /* Continuous Constant Velocity Mode ('v' command) */
-					SP_Vel = Sn;
+					/* Smooth 1.5s ramp up to nominal speed Sn to prevent wheel slip */
+					if (SP_Vel < Sn) {
+						SP_Vel += (Sn / 1.5f) * elapsedTime;
+						if (SP_Vel > Sn)
+							SP_Vel = Sn;
+					} else {
+						SP_Vel = Sn;
+					}
 					break;
 				}
 
-				/* 1. Beregn dynamisk tilladt hastighed ud fra ultralydssensoren */
-				float safe_speed = Ultrasonic_GetSafeSpeed(SP_Vel,
-						AverageSpeed);
+				/* -------------------------------------------------------------
+				 * STEP 2: OBSTACLE SAFETY CHECK (HC-SR04 Ultrasonic)
+				 * Decelerates linearly between 60 cm and 30 cm down to 0 cm/s
+				 * ------------------------------------------------------------- */
+				float safe_speed = Ultrasonic_GetSafeSpeed(SP_Vel, AverageSpeed);
 
-				/* 2. Hvis stoplinjen på 30 cm nås (bekræftet) eller profilen er færdig */
+				/* If confirmed stop line at 30 cm reached, or profile completed */
 				if (state == 0
 						|| (safe_speed <= 0.0f
 								&& Ultrasonic_IsObstacleConfirmed())) {
 					state = 0;
 					SP_Vel = 0.0f;
+					SP_Pos = Real_Dist;
 					ErrorAcum = 0.0f;
+					pid_correction = 0.0f;
+					total_command_cm_s = 0.0f;
 					Apply_Motor_PWM(0.0f);
 				} else {
-							/* Daemp integratoren ved forhindrings-deacceleration for at undgaa overskud/rekyl */
+					/* Apply ultrasonic speed limit if approaching obstacle */
 					if (safe_speed < SP_Vel) {
-						ErrorAcum *= 0.8f;
+						SP_Vel = safe_speed;
+						ErrorAcum *= 0.5f; /* Damp integrator during forced deceleration */
 					}
 
-					/* 3. Lukket PID-hastighedsregulering */
-					SP_Vel = safe_speed;
-					float pid_correction = ControlPID(SP_Vel, AverageSpeed,
-							elapsedTime);
-					float total_command_cm_s = SP_Vel + pid_correction;
+					/* -------------------------------------------------------------
+					 * STEP 3: ADVANCE REFERENCE TRAJECTORY (SP_Pos)
+					 * SP_Pos(k) = SP_Pos(k-1) + SP_Vel * dt
+					 * ------------------------------------------------------------- */
+					SP_Pos += (SP_Vel * elapsedTime);
 
-					if (total_command_cm_s < 1.0f)
-						total_command_cm_s = 1.0f;
+					/* Clamp SP_Pos to target distance for distance profiles (states 1-3) */
+					if (state != 4 && target_dist_cm > 0.01f && SP_Pos > target_dist_cm) {
+						SP_Pos = target_dist_cm;
+					}
 
+					/* -------------------------------------------------------------
+					 * STEP 4: POSITION PID CONTROLLER
+					 * Computes corrective velocity:
+					 *   error = SP_Pos - Real_Dist
+					 *   pid_correction = Kp*error + Ki*ErrorAcum + Kd*ErrorRate
+					 * ------------------------------------------------------------- */
+					pid_correction = ControlPID(SP_Pos, Real_Dist, elapsedTime);
+
+					/* -------------------------------------------------------------
+					 * STEP 5: COMBINE FEED-FORWARD + FEEDBACK COMMAND
+					 * total_command = Feed-Forward (SP_Vel) + PID Correction
+					 * When Kp=Ki=Kd=0 (open-loop test), total_command = SP_Vel.
+					 * ------------------------------------------------------------- */
+					total_command_cm_s = SP_Vel + pid_correction;
+
+					/* Clamp command to realistic vehicle driving range */
+					if (total_command_cm_s < 0.0f)
+						total_command_cm_s = 0.0f;
+					if (total_command_cm_s > 60.0f)
+						total_command_cm_s = 60.0f;
+
+					/* -------------------------------------------------------------
+					 * STEP 6: ACTUATOR OUTPUT (PWM to H-Bridge)
+					 * ------------------------------------------------------------- */
 					Apply_Motor_PWM(total_command_cm_s);
 				}
 			}
@@ -520,6 +628,11 @@ int main(void) {
 			/* Manual Forward: 60% PWM */
 			else if (rx_buffer[0] == 'f') {
 				state = 0;
+				SP_Vel = 0.0f;
+				SP_Pos = Real_Dist;
+				ErrorAcum = 0.0f;
+				pid_correction = 0.0f;
+				total_command_cm_s = 0.0f;
 				HAL_GPIO_WritePin(IN1_PORT, IN1_PIN, GPIO_PIN_RESET);
 				HAL_GPIO_WritePin(IN2_PORT, IN2_PIN, GPIO_PIN_SET);
 				__HAL_TIM_SET_COMPARE(&MOTOR_TIMER, TIM_CHANNEL_1, 60 * 144);
@@ -527,6 +640,11 @@ int main(void) {
 			/* Manual Backward: 60% PWM */
 			else if (rx_buffer[0] == 'b') {
 				state = 0;
+				SP_Vel = 0.0f;
+				SP_Pos = Real_Dist;
+				ErrorAcum = 0.0f;
+				pid_correction = 0.0f;
+				total_command_cm_s = 0.0f;
 				HAL_GPIO_WritePin(IN1_PORT, IN1_PIN, GPIO_PIN_SET);
 				HAL_GPIO_WritePin(IN2_PORT, IN2_PIN, GPIO_PIN_RESET);
 				__HAL_TIM_SET_COMPARE(&MOTOR_TIMER, TIM_CHANNEL_1, 60 * 144);
@@ -535,7 +653,10 @@ int main(void) {
 			else if (rx_buffer[0] == 's') {
 				state = 0;
 				SP_Vel = 0.0f;
+				SP_Pos = Real_Dist;
 				ErrorAcum = 0.0f;
+				pid_correction = 0.0f;
+				total_command_cm_s = 0.0f;
 				Apply_Motor_PWM(0.0f);
 			}
 			/* Steering: Left */
@@ -556,6 +677,11 @@ int main(void) {
 			/* Manual Fixed Speed Tiers: '1' (50%) to '6' (100%) */
 			else if (rx_buffer[0] >= '1' && rx_buffer[0] <= '6') {
 				state = 0;
+				SP_Vel = 0.0f;
+				SP_Pos = Real_Dist;
+				ErrorAcum = 0.0f;
+				pid_correction = 0.0f;
+				total_command_cm_s = 0.0f;
 				int pct = (rx_buffer[0] - '0' + 4) * 10;
 				HAL_GPIO_WritePin(IN1_PORT, IN1_PIN, GPIO_PIN_RESET);
 				HAL_GPIO_WritePin(IN2_PORT, IN2_PIN, GPIO_PIN_SET);
