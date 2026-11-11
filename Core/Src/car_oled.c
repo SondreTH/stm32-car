@@ -188,7 +188,7 @@ int oled_float(int x, int y, float v, int decimals, int scale) {
 void oled_draw_car_status(float dist_cm, float speed_cms, float set_speed_cms,
                           int drive_state, float target_m, float sonar_cm,
                           float mot_pct, float batt_volts) {
-  static const char *const phase[] = { "IDLE", "ACCEL", "CRUISE", "DECEL" };
+  static const char *const phase[] = { "IDLE", "ACCEL", "CRUISE", "DECEL", "VELOCITY" };
 
   oled_clear();
 
@@ -209,13 +209,13 @@ void oled_draw_car_status(float dist_cm, float speed_cms, float set_speed_cms,
   /* --- Row 2 (y = 18): State / Obstacle alert, Target distance --- */
   if (sonar_cm <= 30.0f && sonar_cm > 2.0f) {
     oled_text(0, 18, "OBSTACLE", 1);
-  } else if (drive_state >= 1 && drive_state <= 3) {
+  } else if (drive_state >= 1 && drive_state <= 4) {
     oled_text(0, 18, phase[drive_state], 1);
   } else {
     oled_text(0, 18, (mot_pct != 0.0f) ? "MANUAL" : phase[0], 1);
   }
 
-  if (drive_state != 0 && target_m > 0.01f) {
+  if (drive_state >= 1 && drive_state <= 3 && target_m > 0.01f) {
     x = oled_float(72, 18, target_m, 2, 1);
     oled_text(x, 18, " m", 1);
   }

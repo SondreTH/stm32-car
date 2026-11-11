@@ -9,4 +9,4 @@
 ../Core/Src/car_oled.c:143:5:oled_text	8
 ../Core/Src/car_oled.c:159:5:oled_int	4
 ../Core/Src/car_oled.c:170:5:oled_float	9
-../Core/Src/car_oled.c:188:6:oled_draw_car_status	12
+../Core/Src/car_oled.c:188:6:oled_draw_car_status	13

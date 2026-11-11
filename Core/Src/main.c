@@ -77,7 +77,7 @@ float d_ramp = 2.0f;         // Deceleration time 'd' (seconds)
 float t2 = 8.0f;             // Time when deceleration starts: T - d (seconds)
 float T = 10.0f;             // Total movement time (seconds)
 volatile float SP_Vel = 0.0f;         // Speed setpoint command (cm/s)
-int state = 0; // 0 = Off, 1 = Area 1 (Accel), 2 = Area 2 (Cruise), 3 = Area 3 (Decel)
+int state = 0; // 0 = Off, 1 = Area 1 (Accel), 2 = Area 2 (Cruise), 3 = Area 3 (Decel), 4 = Constant Velocity Mode
 
 /* Encoder & Distance Measurement Variables */
 volatile int32_t position = 0;
@@ -97,9 +97,9 @@ float ErrorAcum = 0.0f;
 float ErrorRate = 0.0f;
 
 /* Gains (tuned in cm/s domain) - declared volatile for CubeMonitor tuning */
-volatile float Kp = 3.8f;
-volatile float Ki = 2.5f;
-volatile float Kd = 0.05f;
+volatile float Kp = 0.0f;
+volatile float Ki = 0.0f;
+volatile float Kd = 0.0f;
 
 /* Function to enter distance with computer (CubeMonitor trigger) */
 volatile float test_dist_m = 0.0f;
@@ -241,12 +241,22 @@ void Apply_Motor_PWM(float control_cm_s) {
 void Set_Speed_cm_s(float target_cm_s) {
 	if (target_cm_s <= 0.0f) {
 		state = 0;
+		SP_Vel = 0.0f;
+		ErrorAcum = 0.0f;
+		lastError = 0.0f;
 		HAL_GPIO_WritePin(IN1_PORT, IN1_PIN, GPIO_PIN_RESET);
 		HAL_GPIO_WritePin(IN2_PORT, IN2_PIN, GPIO_PIN_RESET);
 		__HAL_TIM_SET_COMPARE(&MOTOR_TIMER, TIM_CHANNEL_1, 0);
 		return;
 	}
-	Apply_Motor_PWM(target_cm_s);
+	if (target_cm_s > 50.0f) {
+		target_cm_s = 50.0f;
+	}
+	Sn = target_cm_s;
+	SP_Vel = target_cm_s;
+	ErrorAcum = 0.0f;
+	lastError = 0.0f;
+	state = 4; /* State 4 = Constant Velocity Closed-Loop Mode */
 }
 
 float get_battery_volts(void) {
@@ -291,7 +301,7 @@ int main(void) {
 	/* MCU Configuration--------------------------------------------------------*/
 
 	/* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-	HAL_Init();
+  	HAL_Init();
 
 	/* USER CODE BEGIN Init */
 
@@ -434,6 +444,10 @@ int main(void) {
 						SP_Vel = 0.0f;
 					}
 					break;
+
+				case 4: /* Continuous Constant Velocity Mode ('v' command) */
+					SP_Vel = Sn;
+					break;
 				}
 
 				/* 1. Beregn dynamisk tilladt hastighed ud fra ultralydssensoren */
@@ -449,6 +463,11 @@ int main(void) {
 					ErrorAcum = 0.0f;
 					Apply_Motor_PWM(0.0f);
 				} else {
+							/* Daemp integratoren ved forhindrings-deacceleration for at undgaa overskud/rekyl */
+					if (safe_speed < SP_Vel) {
+						ErrorAcum *= 0.8f;
+					}
+
 					/* 3. Lukket PID-hastighedsregulering */
 					SP_Vel = safe_speed;
 					float pid_correction = ControlPID(SP_Vel, AverageSpeed,
@@ -496,7 +515,6 @@ int main(void) {
 			/* Velocity setpoint in cm/s: e.g., "v25" */
 			else if (rx_buffer[0] == 'v' || rx_buffer[0] == 'V') {
 				float target_v = (float) atof(&rx_buffer[1]);
-				state = 0;
 				Set_Speed_cm_s(target_v);
 			}
 			/* Manual Forward: 60% PWM */

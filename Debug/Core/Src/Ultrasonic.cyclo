@@ -1,7 +1,9 @@
-../Core/Src/Ultrasonic.c:26:6:Ultrasonic_Init	1
-../Core/Src/Ultrasonic.c:34:13:delay_us	2
-../Core/Src/Ultrasonic.c:43:6:Ultrasonic_Trigger	3
-../Core/Src/Ultrasonic.c:59:7:Ultrasonic_GetDistance	1
-../Core/Src/Ultrasonic.c:66:9:Ultrasonic_IsObstacleConfirmed	1
-../Core/Src/Ultrasonic.c:74:6:Ultrasonic_EXTI_Callback	10
-../Core/Src/Ultrasonic.c:118:7:Ultrasonic_GetSafeSpeed	5
+../Core/Src/Ultrasonic.c:30:14:median3	9
+../Core/Src/Ultrasonic.c:40:13:update_distance	6
+../Core/Src/Ultrasonic.c:64:6:Ultrasonic_Init	1
+../Core/Src/Ultrasonic.c:78:13:delay_us	2
+../Core/Src/Ultrasonic.c:87:6:Ultrasonic_Trigger	3
+../Core/Src/Ultrasonic.c:104:7:Ultrasonic_GetDistance	1
+../Core/Src/Ultrasonic.c:111:9:Ultrasonic_IsObstacleConfirmed	1
+../Core/Src/Ultrasonic.c:119:6:Ultrasonic_EXTI_Callback	7
+../Core/Src/Ultrasonic.c:159:7:Ultrasonic_GetSafeSpeed	5
