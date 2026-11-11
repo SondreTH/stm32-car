@@ -142,6 +142,12 @@ volatile float Kd = 0.0f;
 volatile float min_pwm_offset = 7200.0f; // Motor breakaway deadband (~50% duty: 7200 / 14400)
 volatile float pwm_per_cm_s = 80.0f;     // Feed-forward slope (~80 counts per cm/s)
 
+/* 6. BATTERY VOLTAGE COMPENSATION PARAMETERS */
+volatile float V_nominal = 11.5f;        // Baseline calibration voltage (V) - matches 3S LiPo
+volatile float battery_volts = 11.5f;    // Low-pass filtered battery voltage (V)
+volatile float v_comp_factor = 1.0f;     // Voltage compensation multiplier: V_nominal / battery_volts
+volatile uint8_t enable_v_comp = 0;      // 0 = Disabled by default (prevents cutting motor power), 1 = Enabled
+
 /* STM32CubeMonitor trigger for distance test */
 volatile float test_dist_m = 0.0f;
 
@@ -280,7 +286,23 @@ void Apply_Motor_PWM(float control_cm_s) {
 	HAL_GPIO_WritePin(IN1_PORT, IN1_PIN, GPIO_PIN_RESET);
 	HAL_GPIO_WritePin(IN2_PORT, IN2_PIN, GPIO_PIN_SET);
 
-	float cv_pwm = min_pwm_offset + (control_cm_s * pwm_per_cm_s);
+	/* Battery Voltage Compensation:
+	 * If battery voltage decreases, PWM duty is scaled inversely to deliver
+	 * constant average voltage to the motor coils across the full discharge cycle.
+	 */
+	if (enable_v_comp && battery_volts > 4.0f && battery_volts < 16.0f) {
+		v_comp_factor = V_nominal / battery_volts;
+		/* Safety limits: clamp multiplier between 0.6x and 1.35x */
+		if (v_comp_factor < 0.6f)
+			v_comp_factor = 0.6f;
+		if (v_comp_factor > 1.35f)
+			v_comp_factor = 1.35f;
+	} else {
+		v_comp_factor = 1.0f;
+	}
+
+	float uncompensated_pwm = min_pwm_offset + (control_cm_s * pwm_per_cm_s);
+	float cv_pwm = uncompensated_pwm * v_comp_factor;
 
 	/* Clamp between 0 and 14400 (100% duty cycle) */
 	if (cv_pwm > 14400.0f)
@@ -310,14 +332,14 @@ void Set_Speed_cm_s(float target_cm_s) {
 		target_cm_s = 50.0f;
 	}
 	Sn = target_cm_s;
-	SP_Vel = 0.0f;       // Start ramp smoothly
-	SP_Pos = Real_Dist;  // Anchor reference position to current position to avoid step jump
+	SP_Vel = target_cm_s; // Instant step for system identification and breakaway torque
+	SP_Pos = Real_Dist;   // Anchor reference position to current position to avoid step jump
 	error = 0.0f;
 	lastError = 0.0f;
 	ErrorAcum = 0.0f;
 	pid_correction = 0.0f;
 	total_command_cm_s = 0.0f;
-	state = 4;           /* State 4 = Constant Velocity Closed-Loop Mode */
+	state = 4;            /* State 4 = Constant Velocity Closed-Loop Mode */
 }
 
 float get_battery_volts(void) {
@@ -486,6 +508,12 @@ int main(void) {
 			Speed_CM_SEC = ((float) delta_ticks / ticks_per_cm) / elapsedTime;
 			AverageSpeed = (0.5f * AverageSpeed) + (0.5f * Speed_CM_SEC);
 
+			/* Update battery voltage reading with smooth low-pass filter (rejects motor PWM noise) */
+			float raw_v = get_battery_volts();
+			if (raw_v > 4.0f && raw_v < 16.0f) {
+				battery_volts = (0.95f * battery_volts) + (0.05f * raw_v);
+			}
+
 			if (state != 0) {
 				HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin); // Blinker med 5 Hz under kørsel
 				time_ctl += elapsedTime;
@@ -515,14 +543,7 @@ int main(void) {
 					break;
 
 				case 4: /* Continuous Constant Velocity Mode ('v' command) */
-					/* Smooth 1.5s ramp up to nominal speed Sn to prevent wheel slip */
-					if (SP_Vel < Sn) {
-						SP_Vel += (Sn / 1.5f) * elapsedTime;
-						if (SP_Vel > Sn)
-							SP_Vel = Sn;
-					} else {
-						SP_Vel = Sn;
-					}
+					SP_Vel = Sn; /* Direct step input for true step response and instant breakaway */
 					break;
 				}
 
@@ -603,7 +624,7 @@ int main(void) {
 				if (oled_get_addr() != 0) {
 					oled_draw_car_status(Real_Dist, AverageSpeed, SP_Vel, state,
 							target_dist_cm / 100.0f, Ultrasonic_GetDistance(),
-							get_motor_pct(), get_battery_volts());
+							get_motor_pct(), battery_volts);
 					oled_update();
 				}
 			}
