@@ -13,3 +13,9 @@ Release/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Laptop tools
+tools/logs/
+tools/saved_paths/
+__pycache__/
+*.pyc
