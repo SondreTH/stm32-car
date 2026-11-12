@@ -411,7 +411,7 @@ void drive_update(void) {
   HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin); // Check 100ms timing
 
   /* Safety: counting the wrong way would turn the loop into a runaway */
-  if (state != DRIVE_SETTLE && Real_Dist * runDir < -ENC_FAULT_CM) {
+  if (Real_Dist * runDir < -ENC_FAULT_CM) {
     finish_run(RUN_ENC_DIR);
     return;
   }

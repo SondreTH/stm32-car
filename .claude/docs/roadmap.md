@@ -17,6 +17,7 @@ First session on the car, in this order:
 1. `G`: check the battery line. Measure PA4 (see below).
 2. `f`, then `G`: counts must go **up** when driving forward. If not, set
    `ENCODER_INVERT 1`. With the wrong sign, runs now stop after 3 cm.
+   (Done 2026-11-12: the encoder did count backwards, `ENCODER_INVERT` is now 1.)
 3. `T 10`, `d1`, plot with `tools/plot_run.py`. Look at the start (kick),
    the cruise (does the distance follow the reference?) and the stop.
 4. `d0.1`, `d0.05`: the short runs that used to stall.

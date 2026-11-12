@@ -32,7 +32,7 @@ extern "C" {
 #endif
 
 /* ---- direction fixes: flip one if a bring-up test goes the wrong way ---- */
-#define ENCODER_INVERT  0   /* driving forward must INCREASE counts */
+#define ENCODER_INVERT  1   /* driving forward must INCREASE counts (checked on the car 2026-11-12) */
 #define MOTOR_INVERT    0   /* "P 30" must drive the car FORWARD    */
 
 /* ---- OLED (car_oled.c): match your module ---- */
