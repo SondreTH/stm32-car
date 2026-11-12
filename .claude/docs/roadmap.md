@@ -1,30 +1,67 @@
 # Open problems and what is next
 
-Last updated 2026-11-11.
+Last updated 2026-11-12.
 
-## State on 2026-11-12 (evening)
+## State after the car sessions of 2026-11-12
 
-Flashed and seen working on the car: battery reading (11.5 V), commands,
-telemetry, encoder direction (`ENCODER_INVERT 1`), `pf`.
+Seen working on the car (logs `run_20261112_1632*` and `_1634*`):
 
-Seen NOT working: distance runs at 5 kHz PWM (see "What the car showed" in
-[control.md](control.md)).
+- Speed loop + 100 Hz PWM + heading hold: 2 m and 5 m runs ended within
+  1 cm of the target, started within 0.2-0.4 s, average cruise speed
+  17.2-18.0 cm/s for a plan of 18.
+- Heading hold: the sign is right (`IMU_YAW_SIGN 1`, axis Z). Four runs
+  stayed within 1-2.5 degrees.
+- Battery reading at 11.6 V, commands, telemetry, encoder direction.
 
-Written after that, only compiled and simulated, **not yet on the car**:
-100 Hz PWM default, the speed loop, the gyro heading hold. First things to
-do with it:
+Open problems seen in the same logs:
 
-1. Power on with the car standing still. The start message must say
-   `gyro OK`. `G` shows `yaw=`; turn the car left by hand: yaw must go up.
-   If it goes down set `IMU_YAW_SIGN -1.0f`; if it does not change, the
-   module is not lying flat: change `IMU_YAW_AXIS`.
-2. `kh 0`, `T 10`, `v18` for a few metres, `s`. The speed should stay near
-   18. Tune `sp` / `si` if it surges or crawls.
-3. `kh 15`, `d2`. Watch the front wheels: if the car drifts and they steer
-   further the same way, use `kh -15` (and then flip `IMU_YAW_SIGN`).
-4. `d0.1`, `d0.05`, `d-0.3`.
+- **Speed swings.** In cruise the speed swings between about 10 and 27
+  cm/s with a steady rhythm of about 40 cm of travel (2.1-2.4 s). Not known
+  yet whether that is the tight spot in the drivetrain or the two loops
+  hunting. Tests that tell: the `cal` drive (speed loop alone), and a run
+  at another speed (`vn 40`): a rhythm that stays 40 cm is mechanical, one
+  that stays 2.3 s is the controller (then lower `kp` / `ki`).
+- **Heading creep.** In two of the 5 m runs the heading error grew slowly
+  to +5 degrees while the servo went 70-90 us to the right. A P-only hold
+  cannot remove an error that needs a constant steering offset. It looks
+  like play in the steering (the servo moves, the wheels follow late); the
+  `cal` drive measures that. An integral term in the heading hold is the
+  likely fix.
+- **Battery.** The 3S LiPo was run down to 7.9 V (multimeter) during the
+  session, far below the 9.0 V limit. The OLED showed 6.7 V at the time, so
+  the reading is off at low voltage or the pack sagged under load; see
+  [hardware.md](hardware.md). A low-battery warning now exists.
+- The tight spot in the drivetrain is still there (mechanical).
+- `sc 1080` drove straight by eye (default now). The logs cannot confirm
+  it: the heading hold was on in every logged run, and it hides the trim.
 
-Open: the tight spot in the drivetrain (mechanical).
+Written after those sessions, compiled only, **not yet on the car**: the
+`cal` steering calibration drive, the low-battery warning, `batt_v` in the
+telemetry.
+
+Next session on the car (battery charged):
+
+1. `G` with a multimeter on the battery and on PA4 at the same moment.
+2. `T 10`, `cal`: needs a clear strip 5 m long and 2 m wide. Prints a turn
+   radius for nine servo pulses. `s` stops it.
+3. `vn 40`, `d5`: a faster run. 150 m at 18 cm/s would take 14 minutes.
+
+## Plan towards the circuit
+
+Straight runs work. Next is turning, in this order:
+
+1. Steering table from `cal`: servo pulse -> turn radius, real centre,
+   play.
+2. Heading as a target that code can change (now it is "whatever the
+   heading was when the run started"), with an integral term.
+3. A turn: drive an arc until the gyro reaches the new heading.
+4. A route: a list of straights, turns and 10 s waypoint stops, run with
+   one command. The gyro bias can be trimmed again at every stop.
+5. x/y position and obstacle avoidance, as far as the course needs them.
+
+Not known yet (asked the team on 2026-11-12): the shape of the circuit,
+time limit, how the waypoints are marked, what the obstacles are, how
+close to the start the car must end.
 
 ## Not verified on the car (list from 2026-11-11)
 

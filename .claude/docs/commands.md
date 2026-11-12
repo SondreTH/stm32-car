@@ -28,6 +28,7 @@ the run time; `M 1035` is counts per metre, `ms 60` is the start power;
 | `kh <us/deg>` | heading hold gain, 0 = off, negative flips the direction | `STEER_KH` |
 | `sc <us>` | servo pulse that drives straight | `SERVO_CENTER_US` |
 | `Y` | zero the heading | `yawDeg` |
+| `cal` | steering calibration drive: holds the nominal speed and nine servo pulses for 3 s each, prints the turn radius of each. Needs the gyro and a clear strip 5 m x 2 m. `s` stops it | – |
 | `v <cm/s>` | hold a speed with the speed loop (negative = reverse), `v0` stops | – |
 | `f` / `b` | forward / back at `MANUAL_PCT` (60 %) | – |
 | `1`..`6` | 50..100 % in the current direction, only while moving | – |
@@ -38,7 +39,7 @@ the run time; `M 1035` is counts per metre, `ms 60` is the start power;
 | `Z` | zero the encoder (not during a run) | – |
 | `M <counts>` | counts per metre | `COUNTS_PER_METER` |
 | `T <hz>` | telemetry rate, 0 = off | – |
-| `G` | print the settings (two lines) | – |
+| `G` | print the settings (three lines) | – |
 | `I` | scan I2C1 and restart the OLED | – |
 | `?` or `H` | help | – |
 
@@ -55,11 +56,24 @@ ERR motor on but no encoder counts: wheel blocked or encoder unplugged?
 ERR encoder counts the wrong way: change ENCODER_INVERT in car_config.h
 ```
 
-`G` prints:
+`G` prints (` LOW!` after the battery when it is under `BATT_LOW_V`):
 
 ```
-CPM=1035.0 Kp=3.00 Ki=2.00 Kd=0.00 tt=0.0 ta=2.0 td=2.0 vn=18.0 tol=1.0
-motor ms=60.0 mo=45.1 mg=0.59 sonar=400cm batt=11.60V (PA4 1.76V x 6.58) counts=0
+CPM=1035.0 Kp=3.00 Ki=2.00 Kd=0.00 tt=0.0 ta=2.0 td=2.0 vn=18.0 tol=1.0 sp=1.00 si=1.50
+steer sc=1080 kh=15.0 yaw=0.3deg rate=0.0dps bias=-1.12
+motor ms=30.0 mo=22.0 mg=0.50 pf=100 sonar=400cm batt=11.60V (PA4 1.76V x 6.58) counts=0
+```
+
+`cal` prints one line per servo pulse, then `cal done`:
+
+```
+cal 1140 us: -9.8 deg in 44 cm, radius 257 cm right
+```
+
+Below `BATT_LOW_V` (9.9 V) for 3 s, every 30 s:
+
+```
+WARNING battery low: 9.6 V. Stop and charge it (3S LiPo: not below 9.9 V)
 ```
 
 ## Telemetry (`T <hz>`)
@@ -67,7 +81,7 @@ motor ms=60.0 mo=45.1 mg=0.59 sonar=400cm batt=11.60V (PA4 1.76V x 6.58) counts=
 A header line, then CSV lines at the chosen rate on both ports:
 
 ```
-t_ms,state,sp_cms,speed_cms,dist_cm,counts,motor_pct,ref_cm,sonar_cm,yaw_deg,servo_us
+t_ms,state,sp_cms,speed_cms,dist_cm,counts,motor_pct,ref_cm,sonar_cm,yaw_deg,servo_us,batt_v
 ```
 
 | Column | Source |
@@ -82,7 +96,8 @@ t_ms,state,sp_cms,speed_cms,dist_cm,counts,motor_pct,ref_cm,sonar_cm,yaw_deg,ser
 | `ref_cm` | `Pos_Ref`, where the car should be |
 | `sonar_cm` | `sonarCm`, 400 = nothing seen |
 | `yaw_deg` | during a run: degrees off the heading at the start (+ = left). Otherwise the total heading |
-| `servo_us` | servo pulse, 1100 = centre |
+| `servo_us` | servo pulse, 1080 = centre |
+| `batt_v` | battery voltage, smoothed over about half a second |
 
 Telemetry lines are dropped when the send buffer is full. Over Bluetooth
 use `T 5`. The control loop runs at 10 Hz, so more than `T 10` only repeats

@@ -117,8 +117,9 @@ and `D 1.2` mean the same thing.
 | `sp 1` / `si 1.5` | Speed loop gains |
 | `pf 100` | Motor PWM frequency in Hz (100 is the default; 5000 barely moves the car) |
 | `kh 15` | Heading hold: µs of steering per degree off course, `kh 0` = off, negative flips it |
-| `sc 1100` | Servo pulse that drives straight |
+| `sc 1080` | Servo pulse that drives straight |
 | `Y` | Zero the heading |
+| `cal` | Steering calibration: the car drives about 30 s in gentle to tight curves and prints the turn radius for nine servo pulses. Needs a clear strip 5 m long and 2 m wide. `s` stops it |
 | `f` / `b` | Forward / back at 60 % |
 | `1`…`6` | 50…100 %, same direction (only while moving) |
 | `s` | Stop (coast) |
@@ -237,6 +238,15 @@ resistor in the place of the 3.3k (factor 6.56).
 
 PA4 must stay below 3.3 V at a full battery (12.6 V). With 6.58 it reaches
 1.9 V, which is safe.
+
+**Low battery.** The battery is a 3S LiPo: 12.6 V full, and it must not go
+below 9.0 V (3.0 V per cell), or the cells are damaged. On 2026-11-12 it
+was run down to 7.9 V without anyone noticing. The car now warns below
+9.9 V: "LOW BAT" blinks on the OLED and a `WARNING battery low` line is
+printed every 30 s. It does not stop by itself, so stop and charge when
+you see it. At 7.9 V the display showed 6.7 V, so at low voltage the
+reading is still not right (or the battery sagged under load); the warning
+comes early rather than late.
 
 ## Check after flashing
 

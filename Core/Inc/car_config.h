@@ -42,7 +42,8 @@ extern "C" {
 
 /* ---- steering servo (TIM2, 1 us per tick), measured on the car ---- */
 #define SERVO_PULSE_MIN     600   /* us, full left  */
-#define SERVO_PULSE_CENTER 1100   /* us, straight: default of SERVO_CENTER_US ("sc") */
+#define SERVO_PULSE_CENTER 1080   /* us, straight: default of SERVO_CENTER_US ("sc").
+                                     1080 drove straight on 2026-11-12 (was 1100) */
 #define SERVO_PULSE_MAX    1500   /* us, full right */
 
 /* ---- MPU-6050 gyro (car_heading.c) ---- */
@@ -81,6 +82,11 @@ extern "C" {
 #define OBST_CLEAR_CM     35.0f   /* further than this: continue the run        */
 
 #define MANUAL_PCT        60.0f   /* f / b commands */
+
+/* ---- battery warning (car_app.c). 3S LiPo: 12.6 V full, 11.1 V nominal ---- */
+#define BATT_LOW_V        9.9f    /* 3.3 V per cell: warn, stop driving and charge.
+                                     Below 9.0 V (3.0 V per cell) the cells are damaged */
+#define BATT_PRESENT_V    5.0f    /* reading under this = no battery (USB power): no warning */
 
 /* ---- values that commands can change (defaults in car_config.c) ---- */
 extern float COUNTS_PER_METER;    /* M   encoder counts per metre                          */

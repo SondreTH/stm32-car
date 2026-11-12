@@ -112,6 +112,32 @@ the divider theory. About 2.9 V would mean the divider is as drawn and the
 ADC side is wrong (then look at VDDA / the 3.3 V rail and the ADC setup).
 Either way PA4 is far below 3.3 V, so nothing is at risk.
 
+Second pair of readings, 2026-11-12:
+
+| Multimeter on the battery | Shown (factor 6.58) | PA4 from the reading |
+|---|---|---|
+| 11.6 V | 11.49 V | 1.75 V |
+| 7.9 V | 6.7 V | 1.02 V |
+
+One factor cannot fit both (6.63 and 7.76). Two explanations, not told
+apart yet:
+
+- The two 7.9 / 6.7 values were not taken at the same moment. A nearly
+  empty LiPo sags a lot under load and recovers when the load is gone.
+- Something in the sense path drops a fixed voltage: a straight line
+  through both points is battery = 5.05 x PA4 + 2.75 V.
+
+To settle it: multimeter on the battery and on PA4 (CN7-32) at the same
+moment as `G`, at two different battery voltages. Telemetry now has
+`batt_v`, which shows the sag while driving.
+
+**7.9 V is far too low for a 3S LiPo** (2.6 V per cell; the cells are
+damaged below about 3.0 V per cell, 9.0 V). `battery_poll()` in
+`car_app.c` now warns below `BATT_LOW_V` (9.9 V, 3.3 V per cell): "LOW BAT"
+blinks on the OLED and a line is printed every 30 s. It only warns; it
+does not stop the car. With the reading as it is, the warning comes early
+rather than late.
+
 ADC setup: ADC1, channel 4, 12 bit, 480-cycle sampling, software start.
 `battery_pin_volts()` averages 8 conversions and assumes VDDA = 3.3 V.
 

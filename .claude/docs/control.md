@@ -71,8 +71,32 @@ First runs on the real car. They are the reason for the speed loop.
   16 cm from 54 cm/s, 32 cm from 93 cm/s).
 
 So the same % gives very different speeds: only a loop on the measured
-speed can hold 18 cm/s. **The speed loop and the 100 Hz default have only
-run in `drive_sim` so far, not on the car.**
+speed can hold 18 cm/s.
+
+### With the speed loop and heading hold (same day, later)
+
+Six logged runs (2 m, 5 m, one stopped by hand), Kp 3, Ki 2, Kvp 1, Kvi
+1.5, 100 Hz, `kh` 10-20:
+
+| | Result |
+|---|---|
+| End position | within 1.0 cm of the target in every finished run |
+| Start | moving after 0.2-0.4 s |
+| Cruise speed | mean 17.2-18.0 cm/s (plan 18), but swinging: 10th-90th percentile about 10..26 cm/s |
+| Rhythm of the swing | about 40 cm of travel, 2.1-2.4 s; the speed 20 cm later is the opposite (correlation -0.6 to -0.9) |
+| Motor % in cruise | mean 18-33 %, swinging between about 8 and 55 % |
+| Lag behind the reference | mostly within 2-3 cm, up to 8.5 cm |
+| Heading | within 1-2.5 degrees in four runs; crept to +5 degrees in two 5 m runs |
+
+Not explained yet: the swing (tight spot, or position loop and speed loop
+too close in speed: Kp 3 /s on top of a speed loop that needs about half a
+second), and the heading creep (probably play in the steering). The
+battery went flat during this session (7.9 V), which may have affected the
+last runs. See [roadmap.md](roadmap.md) for the tests that decide.
+
+`drive_sim` shows the same kind of swing when its model gets a tight spot
+(`bump=10` or `15`): speed 6..30 cm/s. Lower position gains (`kp=1
+ki=0.5`) reduce it by about a quarter there, not more.
 
 ## Why the extra logic exists
 
