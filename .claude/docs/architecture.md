@@ -21,6 +21,10 @@ Dependencies go one way: `car_app` → `car_drive` → `car_hw` → HAL.
 `car_comms` and `car_oled` only depend on the HAL. Everything reads
 `car_config.h`.
 
+`car_heading.c` / `.h` (added 2026-11-12): MPU-6050 gyro, heading, and the
+steering that holds the heading during a run. `heading_poll()` is called
+from `App_Loop()`.
+
 ## What runs where
 
 | Context | Priority | Code | Period |

@@ -7,7 +7,7 @@ Bluetooth (9600). A line ends with LF or CR. The first letter is not case
 sensitive. A number may follow directly or after a space.
 
 The parser checks the two-letter settings first (`tt ta td tol kp ki kd ms
-mo mg vn vb`), then the single letters. So `T 5` is telemetry, `tt 5` is
+mo mg vn vb sp si sc kh pf`), then the single letters. So `T 5` is telemetry, `tt 5` is
 the run time; `M 1035` is counts per metre, `ms 60` is the start power;
 `v18` is open-loop speed, `vn 18` the nominal speed.
 
@@ -23,7 +23,12 @@ the run time; `M 1035` is counts per metre, `ms 60` is the start power;
 | `mo <pct>` | motor offset once rolling | `MOTOR_MIN_PCT` |
 | `mg <pct per cm/s>` | motor slope | `MOTOR_PCT_PER_CMS` |
 | `vb <volts>` | calibrate the battery reading to this multimeter value | `BATT_DIVIDER` |
-| `v <cm/s>` | hold a speed open loop (negative = reverse), `v0` stops | – |
+| `sp` / `si <gain>` | speed loop gains | `Kvp` / `Kvi` |
+| `pf <Hz>` | motor PWM frequency, 50..5000, default 100 | TIM1 prescaler |
+| `kh <us/deg>` | heading hold gain, 0 = off, negative flips the direction | `STEER_KH` |
+| `sc <us>` | servo pulse that drives straight | `SERVO_CENTER_US` |
+| `Y` | zero the heading | `yawDeg` |
+| `v <cm/s>` | hold a speed with the speed loop (negative = reverse), `v0` stops | – |
 | `f` / `b` | forward / back at `MANUAL_PCT` (60 %) | – |
 | `1`..`6` | 50..100 % in the current direction, only while moving | – |
 | `s` | stop: end the run, coast | – |
@@ -62,7 +67,7 @@ motor ms=60.0 mo=45.1 mg=0.59 sonar=400cm batt=11.60V (PA4 1.76V x 6.58) counts=
 A header line, then CSV lines at the chosen rate on both ports:
 
 ```
-t_ms,state,sp_cms,speed_cms,dist_cm,counts,motor_pct,ref_cm,sonar_cm
+t_ms,state,sp_cms,speed_cms,dist_cm,counts,motor_pct,ref_cm,sonar_cm,yaw_deg,servo_us
 ```
 
 | Column | Source |
@@ -76,6 +81,8 @@ t_ms,state,sp_cms,speed_cms,dist_cm,counts,motor_pct,ref_cm,sonar_cm
 | `motor_pct` | last commanded motor % (0 while braking or coasting) |
 | `ref_cm` | `Pos_Ref`, where the car should be |
 | `sonar_cm` | `sonarCm`, 400 = nothing seen |
+| `yaw_deg` | during a run: degrees off the heading at the start (+ = left). Otherwise the total heading |
+| `servo_us` | servo pulse, 1100 = centre |
 
 Telemetry lines are dropped when the send buffer is full. Over Bluetooth
 use `T 5`. The control loop runs at 10 Hz, so more than `T 10` only repeats

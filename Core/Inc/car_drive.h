@@ -37,6 +37,8 @@ extern volatile float SP_Vel;          /* speed setpoint from the profile */
 extern volatile float Real_Dist;       /* distance driven since the start of the run */
 extern volatile float Speed_CM_SEC, AverageSpeed;
 extern volatile float Kp, Ki, Kd;
+extern volatile float Kvp, Kvi;        /* speed loop gains: motor % per cm/s (and per second) */
+extern volatile float SpeedAcum;       /* I term of the speed loop, motor % */
 extern volatile float test_dist_m;
 extern volatile float Pos_Ref;         /* where the car should be now: area under SP_Vel */
 extern volatile float run_T, run_ta, run_td;   /* timed run: total, accel, decel time (s) */

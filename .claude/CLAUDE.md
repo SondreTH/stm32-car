@@ -10,14 +10,16 @@ MPU-6050, an I2C OLED and a Bluetooth serial module.
 
 **Where the firmware is now:** straight distance runs with a trapezoidal
 speed profile and a position PID, obstacle *stop* (not avoidance), manual
-driving, OLED, telemetry. No gyro, no x/y position, no route following yet.
+driving, OLED, telemetry. Since 2026-11-12: a speed loop under the position
+loop, 100 Hz motor PWM, and a gyro heading hold that steers the car straight
+during a run. No x/y position, no route following yet.
 
 ## Documentation in this folder
 
 | File | Read it when |
 |---|---|
 | [docs/architecture.md](docs/architecture.md) | You need to know which file does what, what runs in which interrupt, and what data is shared |
-| [docs/control.md](docs/control.md) | You touch `car_drive.c`: the profile, the PID, kick-start, anti-windup, settle, the safety stops |
+| [docs/control.md](docs/control.md) | You touch `car_drive.c` or `car_heading.c`: the profile, the PID, the speed loop, anti-windup, settle, the safety stops, the heading hold, and what the car measured on 2026-11-12 |
 | [docs/hardware.md](docs/hardware.md) | Pins, timers, clocks, sensors, calibration values, the battery divider problem |
 | [docs/commands.md](docs/commands.md) | The serial commands, telemetry columns, CubeMonitor variables |
 | [docs/history.md](docs/history.md) | Branches, who wrote what, how the `integration` merge was done, where the old autopilot code is |
@@ -88,8 +90,12 @@ say clearly what was only simulated.
   prescaler or period breaks both `DRIVE_PERIOD_MS` and `SONAR_TICK_US`.
 - The position loop needs the encoder to count **up** when driving forward
   (`ENCODER_INVERT`). The old code used the absolute value and did not care.
-- The motor needs about 60 % to start moving but less to keep rolling. Any
-  new code that commands the motor from standstill must go through
-  `Apply_Motor_PWM()` in `car_drive.c` (or reuse its kick-start idea).
+- The motor is very uneven: the same % gave 2 to 20 cm/s on the car, and
+  the drivetrain has a tight spot. Any new code that needs a speed must go
+  through `Apply_Motor_PWM()` in `car_drive.c` (the speed loop), not set a
+  motor % from a table. The motor PWM runs at 100 Hz on purpose; at
+  CubeMX's 5 kHz the car does not start below 80 %.
+- I2C1 (OLED and gyro) is only used from the main loop. Do not read the
+  gyro from the TIM3 interrupt.
 - `BATT_DIVIDER` (6.58) does not match the wiring guide (4.03). See
   [docs/hardware.md](docs/hardware.md).

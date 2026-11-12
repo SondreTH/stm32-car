@@ -9,7 +9,7 @@ Board: NUCLEO-F446RE, with a perfboard on the inner morpho rows
 | Motor driver | L298N (ENA jumper removed, PWM on ENA) |
 | Steering | MG996R servo, own 6 V supply from an XL4015 buck converter |
 | Distance sensor | HC-SR04, ECHO through a 1k/2k divider |
-| IMU | MPU-6050 at 0x68 (wired, not read by any code yet) |
+| IMU | MPU-6050 at 0x68, gyro read by `car_heading.c` for the heading hold |
 | Display | 0.96" 128x64 I2C OLED, SSD1306, at 0x3C |
 | Bluetooth | BT04-A (ZS-040), 9600 baud |
 | Power | 3S LiPo (11.1 V nominal, 12.6 V full), switch, 5 A fuse, 5 V module for the Nucleo (E5V) and sensors |
@@ -39,7 +39,7 @@ APB1 timers and APB2 timers both run at 84 MHz.
 
 | Timer | Settings | Use |
 |---|---|---|
-| TIM1 | PSC 0, ARR 16799 → 5 kHz | motor PWM on CH1 (PA8). Duty = motor % |
+| TIM1 | PSC 0, ARR 16799 → 5 kHz in CubeMX; `hw_init()` sets PSC 49 → **100 Hz** (`MOTOR_PWM_HZ`) | motor PWM on CH1 (PA8). Duty = motor % |
 | TIM2 | PSC 83 → 1 MHz, ARR 19999 → 50 Hz | servo PWM on CH3. Compare value = pulse in µs |
 | TIM3 | PSC 839 → 10 µs per count, ARR 9999 → 100 ms | update interrupt = control step; counter = sonar echo timing |
 | TIM5 | encoder mode TI1+TI2 (x4), 32-bit, input filter 6 | wheel encoder |
@@ -55,10 +55,19 @@ is why the motor map is written as "6500 + 85 per cm/s out of 14400".
   motor, it brakes.
 - `MOTOR_INVERT` in `car_config.h` swaps the direction if the wiring is
   the other way round.
-- Measured on the car: the car starts to move at about **60 %**; once
-  rolling it follows roughly 45.1 % + 0.59 % per cm/s (Hakon's tuning, at
-  18 cm/s). These are `MOTOR_START_PCT`, `MOTOR_MIN_PCT`,
-  `MOTOR_PCT_PER_CMS` in `car_config.c`.
+- PWM frequency matters a lot, because the PWM is on the enable pin (the
+  motor coasts between pulses). Measured 2026-11-12: at 5 kHz and 500 Hz
+  nothing moves below 70-80 % and then the car runs away; at 100 Hz it
+  starts at 30-40 % and 40 / 50 / 70 % give about 30 / 54 / 93 cm/s.
+  `motor_pwm_hz()` (command `pf`) changes the TIM1 prescaler; the default
+  is 100 Hz. The motor buzzes at that frequency.
+- `MOTOR_START_PCT` 30, `MOTOR_MIN_PCT` 22, `MOTOR_PCT_PER_CMS` 0.5 in
+  `car_config.c` are a rough line through those points. The speed loop in
+  `car_drive.c` corrects the rest. Older values (5 kHz): 60, 45.1, 0.59.
+- The drivetrain has a tight spot (felt by hand, seen as speed surges at
+  constant %). Not fixed as of 2026-11-12.
+- Wiring idea not tried: PWM on IN1 with ENA held high makes the L298N
+  brake between pulses, so speed follows the duty much more closely.
 
 ## Encoder
 
@@ -112,8 +121,13 @@ ADC setup: ADC1, channel 4, 12 bit, 480-cycle sampling, software start.
 `i2c_scan()` (the `I` command) lists what answers and re-initialises the
 peripheral, which clears a stuck BUSY flag after hot-plugging.
 
-The old autopilot firmware had an MPU-6050 driver (gyro Z integration with
-calibration). See [history.md](history.md) for where to find it.
+Both devices are only used from the main loop, so they never interrupt
+each other. `car_heading.c` reads the gyro (6 bytes, about 0.3 ms) every
+5 ms or more; the OLED update blocks the bus for ~25 ms five times a
+second, and the heading integration measures the real time between
+readings. Gyro setup: ±250 deg/s, 44 Hz low-pass. `IMU_YAW_AXIS` /
+`IMU_YAW_SIGN` in `car_config.h` describe how the module is mounted
+(assumed flat, Z up; not checked on the car yet).
 
 ## Printed parts (`cad/`)
 

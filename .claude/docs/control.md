@@ -39,13 +39,40 @@ During states 1–3:
 ```
 error   = Pos_Ref - Real_Dist
 command = SP_Vel + Kp*error + Ki*ErrorAcum + Kd*ErrorRate        (cm/s)
-motor % = MOTOR_MIN_PCT + |command| * MOTOR_PCT_PER_CMS, in the direction of command
+          (the PID part is limited to +-PID_OUT_MAX_CMS, 12 cm/s)
+
+speed loop, in Apply_Motor_PWM (since 2026-11-12):
+ev      = |command| - speed in that direction
+motor % = MOTOR_MIN_PCT + |command| * MOTOR_PCT_PER_CMS + Kvp*ev + SpeedAcum
+SpeedAcum += Kvi * ev * dt
 ```
 
-`SP_Vel` is feed-forward. If the motor map (`MOTOR_MIN_PCT`,
-`MOTOR_PCT_PER_CMS`) is right, the PID has almost nothing to do. Defaults:
-Kp 3, Ki 2, Kd 0 (Hakon's values from the car, originally for a speed
-loop), map 45.1 % + 0.59 %/(cm/s).
+`SP_Vel` is feed-forward for the position loop, and the motor line
+(`MOTOR_MIN_PCT`, `MOTOR_PCT_PER_CMS`) is feed-forward for the speed loop.
+Defaults: Kp 3, Ki 2, Kd 0 (Hakon's values), Kvp 1.0, Kvi 1.5, motor line
+22 % + 0.5 %/(cm/s) at 100 Hz PWM.
+
+## What the car showed on 2026-11-12 (logs in `tools/logs/`, not in git)
+
+First runs on the real car. They are the reason for the speed loop.
+
+- At the CubeMX PWM frequency of 5 kHz the car did nothing up to 70-80 %
+  and then ran away to 80-90 cm/s. PWM is on the L298N enable pin, so the
+  motor coasts between pulses; short pulses give almost no torque at
+  standstill. Hakon's line (45.1 % + 0.59 %/(cm/s), start at 60 %) did not
+  hold: a 1 m run stood for 2 s, shot to 62 cm/s and ended 6.4 cm too far.
+- Open-loop steps at other frequencies (`pf`): 500 Hz was as bad as 5 kHz.
+  At 100 Hz: 40 % gave 25-40 cm/s, 50 % 54 cm/s, 70 % 93 cm/s, started
+  within 0.1 s. At 200 Hz in between. 100 Hz is now the default
+  (`MOTOR_PWM_HZ`).
+- Even at constant % the speed surged (30 % at 50 Hz: 2..20 cm/s and back).
+  The team confirmed a tight spot in the drivetrain by hand. Not fixed yet.
+- With the motor off the car stops by friction at roughly 90 cm/s2 (rolled
+  16 cm from 54 cm/s, 32 cm from 93 cm/s).
+
+So the same % gives very different speeds: only a loop on the measured
+speed can hold 18 cm/s. **The speed loop and the 100 Hz default have only
+run in `drive_sim` so far, not on the car.**
 
 ## Why the extra logic exists
 
@@ -58,14 +85,20 @@ stored integral then pushed the car past the target; very short runs never
 moved at all. (In `drive_sim` with the default model: the old code started
 after 1.1 s, a 10 cm run ended 6 cm too far, and a 5 cm run did not move.)
 
-### Kick-start (`Apply_Motor_PWM`)
+The paragraph above is the history of the first version (5 kHz PWM, 60 %
+start). The numbers changed on 2026-11-12, the idea did not.
+
+### Start and speed loop (`Apply_Motor_PWM`)
 
 "Standing" means the last step's speed was under `DRIVE_MOVING_CMS`
 (1.5 cm/s = fewer than 2 encoder counts in 100 ms). A standing car that is
-commanded to move gets at least `MOTOR_START_PCT` (60 %). For every step it
-still stands, the kick grows by `KICK_RAMP_PCT_S` (20 % per second), which
-covers a low battery or a rough floor. As soon as the encoder sees
-movement, the normal map applies.
+commanded to move gets at least `MOTOR_START_PCT` (30 %). For every step it
+still stands, `SpeedAcum` grows by at least `KICK_RAMP_PCT_S` (25 % per
+second), which covers a tight spot, a low battery or a rough floor. Once
+it moves, the PI on the speed error takes over: too fast lowers the motor
+%, down to 0 (coast; it never drives backwards to slow down), too slow
+raises it. `SpeedAcum` is limited to +-`SPEED_I_MAX_PCT`, stops growing at
+0 % and 100 %, and is cleared whenever the motor is let go.
 
 ### Anti-windup (`ControlPID`)
 
@@ -132,12 +165,32 @@ encoder the error would grow as the car drives and the motor would go to
 100 %. `RUN_STALL` also covers an unplugged encoder. Both also apply to the
 open-loop `v` command (stall only).
 
-## Open loop (`v` command)
+## Holding a speed (`v` command)
 
-`Set_Speed_cm_s(v)` stores `openLoopCms`. While no run is active,
-`drive_update()` applies it through `Apply_Motor_PWM` every step, so `v`
-also gets the kick-start. There is no feedback: the speed is whatever the
-motor map gives.
+`Set_Speed_cm_s(v)` stores `openLoopCms` (the name is from before the
+speed loop). While no run is active, `drive_update()` applies it through
+`Apply_Motor_PWM` every step, so `v18` holds 18 cm/s with the speed loop.
+It is the easiest way to tune `sp` / `si`: `T 10`, `v18`, look at the speed.
+
+## Heading hold (`car_heading.c`)
+
+Runs in the main loop, not in the interrupt (the OLED uses the same I2C
+bus from the main loop). Every 5 ms or more it reads the MPU-6050 gyro and
+adds up `yawDeg += (rate - bias) * dt`, with dt measured, so the 25 ms OLED
+update does not matter. Positive yaw = turned left.
+
+- Bias: 200 readings at start-up (0.6 s, car must stand still), then
+  trimmed slowly while the car stands with the motor off and nobody turns
+  it (under 1 deg/s).
+- When a run starts (`state` leaves 0) the heading is remembered. During
+  the run: `servo = SERVO_CENTER_US + dir * STEER_KH * headingErrDeg`,
+  limited to the servo range; `dir` is -1 for a reverse run. When the run
+  ends the servo goes back to centre.
+- `kh 0` turns it off. `sc <us>` trims the centre pulse. If the gyro stops
+  answering, the hold stops and the servo centres; `I` tries again.
+- **Not run on the car yet.** Unknown until then: the mounting of the
+  module (`IMU_YAW_AXIS`, `IMU_YAW_SIGN`) and whether 15 us/deg is a good
+  gain. `drive_sim` does not model steering.
 
 ## Checking a change: `tools/drive_sim`
 

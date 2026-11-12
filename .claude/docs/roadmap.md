@@ -2,7 +2,31 @@
 
 Last updated 2026-11-11.
 
-## Not verified on the car
+## State on 2026-11-12 (evening)
+
+Flashed and seen working on the car: battery reading (11.5 V), commands,
+telemetry, encoder direction (`ENCODER_INVERT 1`), `pf`.
+
+Seen NOT working: distance runs at 5 kHz PWM (see "What the car showed" in
+[control.md](control.md)).
+
+Written after that, only compiled and simulated, **not yet on the car**:
+100 Hz PWM default, the speed loop, the gyro heading hold. First things to
+do with it:
+
+1. Power on with the car standing still. The start message must say
+   `gyro OK`. `G` shows `yaw=`; turn the car left by hand: yaw must go up.
+   If it goes down set `IMU_YAW_SIGN -1.0f`; if it does not change, the
+   module is not lying flat: change `IMU_YAW_AXIS`.
+2. `kh 0`, `T 10`, `v18` for a few metres, `s`. The speed should stay near
+   18. Tune `sp` / `si` if it surges or crawls.
+3. `kh 15`, `d2`. Watch the front wheels: if the car drifts and they steer
+   further the same way, use `kh -15` (and then flip `IMU_YAW_SIGN`).
+4. `d0.1`, `d0.05`, `d-0.3`.
+
+Open: the tight spot in the drivetrain (mechanical).
+
+## Not verified on the car (list from 2026-11-11)
 
 The `integration` branch was built and checked without the car.
 
@@ -51,7 +75,8 @@ adding once the reading can be trusted.
 The challenge: about 150 m circuit, three 10 s waypoint stops, obstacles,
 finish at the start. What the firmware lacks, roughly in order:
 
-1. **MPU-6050 gyro**: read Z rate, calibrate bias at standstill, integrate
+1. **MPU-6050 gyro**: done in `car_heading.c` on 2026-11-12 (heading and
+   heading hold), untested. Was: read Z rate, calibrate bias at standstill, integrate
    to a heading. The sensor is wired on I2C1 and answers at 0x68. Note the
    OLED update blocks the bus for ~25 ms; reads must fit around it (or the
    OLED moves to a slower, split update).

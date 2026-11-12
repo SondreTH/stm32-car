@@ -148,9 +148,10 @@ void sonar_echo_edge(void) {
 /* ------------------------------------------------------------------ init */
 void hw_init(void) {
   HAL_TIM_Encoder_Start(&htim5, TIM_CHANNEL_ALL);    /* encoder */
+  motor_pwm_hz(MOTOR_PWM_HZ);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);          /* motor PWM (sets MOE on TIM1) */
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_3);          /* servo PWM */
-  servo_set_us(SERVO_PULSE_CENTER);
+  servo_set_us((uint32_t)SERVO_CENTER_US);
   motor_brake();
   encoder_zero();
 }

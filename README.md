@@ -23,7 +23,11 @@ This is one STM32CubeIDE project, `stm32-car`, at the root of the repository.
 - **Telemetry** as CSV on both serial ports, for plotting and for comparing
   with Simulink.
 
-Not in the firmware yet: reading the MPU-6050 gyro, x/y position, following
+- **Heading hold.** During a run the MPU-6050 gyro measures how far the car
+  has turned, and the servo steers it back. New on 2026-11-12, not tested
+  on the car yet.
+
+Not in the firmware yet: x/y position, following
 a recorded route, and driving around obstacles. An earlier version of the
 firmware had these; see [Old autopilot code](#old-autopilot-code).
 
@@ -86,8 +90,9 @@ In generated files (`main.c`, `main.h`, `stm32f4xx_it.c`,
 | PB9 | CN10-5 | `I2C_SDA` | MPU-6050 SDA and OLED SDA |
 
 Power the OLED from 3.3 V (VDD/VCC) and GND. The OLED (0x3C) and the
-MPU-6050 (0x68) share the I2C1 wires, so `I` should list both. No code
-reads the MPU-6050 yet.
+MPU-6050 (0x68) share the I2C1 wires, so `I` should list both. The gyro
+is read for the heading hold; the car must stand still for a second after
+power-on while it measures the gyro's zero.
 
 Hardware: 25GA370 12 V motor with gearbox and encoder, L298N driver, MG996R
 steering servo, HC-SR04, MPU-6050, BT04-A Bluetooth module, 3S LiPo, an
@@ -108,7 +113,12 @@ and `D 1.2` mean the same thing.
 | `kp 3` / `ki 2` / `kd 0` | PID gains |
 | `ms 60` / `mo 45` / `mg 0.59` | Motor: % needed to start moving / offset once rolling / % per cm/s |
 | `vb 11.6` | The battery voltage on a multimeter: calibrates the battery reading |
-| `v18` | Constant speed in cm/s, open loop |
+| `v18` | Hold a speed in cm/s (speed loop) |
+| `sp 1` / `si 1.5` | Speed loop gains |
+| `pf 100` | Motor PWM frequency in Hz (100 is the default; 5000 barely moves the car) |
+| `kh 15` | Heading hold: µs of steering per degree off course, `kh 0` = off, negative flips it |
+| `sc 1100` | Servo pulse that drives straight |
+| `Y` | Zero the heading |
 | `f` / `b` | Forward / back at 60 % |
 | `1`…`6` | 50…100 %, same direction (only while moving) |
 | `s` | Stop (coast) |
@@ -142,14 +152,16 @@ Every 100 ms the TIM3 interrupt runs one control step (`drive_update()` in
 2. **Position PID.** The error is `Pos_Ref − Real_Dist` (encoder). The
    command in cm/s is `SP_Vel + Kp·e + Ki·∫e + Kd·de/dt`. `SP_Vel` is the
    feed-forward, so the PID only corrects what is left.
-3. **Motor.** Motor % = `MOTOR_MIN_PCT` + command × `MOTOR_PCT_PER_CMS`.
+3. **Speed loop.** Motor % = `MOTOR_MIN_PCT` + command × `MOTOR_PCT_PER_CMS`
+   as a first guess, then corrected by a PI on the measured speed (`sp`,
+   `si`). On the car the same motor % gave anything from 2 to 20 cm/s, so
+   the first guess alone cannot hold a speed.
 
 Four things keep the car from stalling, overshooting and hunting:
 
-- **Kick-start.** A standing car does not move below about 60 % motor
-  power, but keeps rolling at less. So a standing car gets at least
-  `MOTOR_START_PCT` until the encoder sees it move, and a little more every
-  step it still stands. Before, the car waited for the integral to grow,
+- **Start.** A standing car needs more power than a rolling one. So a
+  standing car gets at least `MOTOR_START_PCT` (30 % at 100 Hz PWM) and
+  25 % more for every second it still stands. Before, the car waited for the integral to grow,
   which took seconds on short runs.
 - **Anti-windup.** The integral only grows while the motor can follow the
   command: not while the car still stands, not at 100 %, not during an

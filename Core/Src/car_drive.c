@@ -10,14 +10,22 @@
  * its correction to SP_Vel, the feed-forward speed command.
  *
  *   command (cm/s) = SP_Vel + Kp*e + Ki*integral(e) + Kd*de/dt,  e = Pos_Ref - Real_Dist
- *   motor %        = MOTOR_MIN_PCT + command * MOTOR_PCT_PER_CMS
+ *
+ * Under it runs a speed loop (added 2026-11-12). On the car the same motor
+ * % gave anything from 2 to 20 cm/s, so a fixed "% per cm/s" table cannot
+ * hold a speed. The speed loop compares the command with the encoder speed:
+ *
+ *   motor % = MOTOR_MIN_PCT + command * MOTOR_PCT_PER_CMS     (first guess)
+ *           + Kvp * ev + SpeedAcum,   ev = command - speed,  SpeedAcum += Kvi*ev*dt
  *
  * What keeps it from stalling, winding up and hunting:
- *  - Kick-start. A standing car gets at least MOTOR_START_PCT until the
- *    encoder sees it move, so it never waits for the integral to grow.
- *  - Anti-windup. The integral only grows while the motor can follow: not
- *    while the car is still standing, not at 100 %, not during an obstacle
- *    pause. The I term is also limited to PID_I_MAX_CMS.
+ *  - Start. A standing car gets at least MOTOR_START_PCT, and SpeedAcum
+ *    grows by KICK_RAMP_PCT_S every second until the encoder sees it move.
+ *  - Anti-windup. The position integral only grows while the motor can
+ *    follow: not while the car is still standing, not at 100 %, not during
+ *    an obstacle pause. The I term is also limited to PID_I_MAX_CMS, and
+ *    the whole correction to PID_OUT_MAX_CMS, so a car that is behind does
+ *    not race to catch up. SpeedAcum stops growing at 0 % and 100 %.
  *  - During the profile the motor never drives against the run. A car that
  *    is ahead coasts or brakes until the reference catches up.
  *  - Settle. When the profile ends the car closes the remaining error with
@@ -69,6 +77,12 @@ volatile float Kp = 3.0f;
 volatile float Ki = 2.0f;
 volatile float Kd = 0.0f;
 
+/* Speed loop under the position loop: speed error (cm/s) -> motor %.
+ * Kvp in % per cm/s, Kvi in % per cm/s per second. Commands "sp", "si". */
+volatile float Kvp = 1.0f;
+volatile float Kvi = 1.5f;
+volatile float SpeedAcum = 0.0f;      // I term of the speed loop, in motor %
+
 /* Function to enter distance with computer (CubeMonitor trigger) */
 volatile float test_dist_m = 0.0f;
 
@@ -119,6 +133,7 @@ static void reset_run(void) {
   reversals = 0;
   settleTime = 0.0f;
   stallTime = 0.0f;
+  SpeedAcum = 0.0f;
   runResult = RUN_NONE;
 }
 
@@ -252,42 +267,63 @@ float ControlPID(float setpoint, float input, float dt) {
 }
 
 /**
- * @brief Converts a speed command (cm/s, either direction) into motor %
- *        Includes the minimum motor voltage offset (M2.9 Slide 36-38 & M2.10 Slide 22)
+ * @brief Speed loop: drives the motor so the car rolls at control_cm_s
+ *        (either direction). Feed-forward from the motor line (M2.9 Slide
+ *        36-38 & M2.10 Slide 22) plus a PI on the measured speed.
  * @return true if the motor drives, false if it coasts or brakes
  */
 static bool Apply_Motor_PWM(float control_cm_s) {
+  float dt = DRIVE_PERIOD_MS / 1000.0f;
   float dir = signf_(control_cm_s);
+  float want = fabsf(control_cm_s);
+  float have = Speed_CM_SEC * dir;      // speed in the direction we want to go
   bool moving = fabsf(Speed_CM_SEC) >= DRIVE_MOVING_CMS;
   outSat = 0;
   intFreeze = false;
 
-  if (fabsf(control_cm_s) < DRIVE_CMD_MIN_CMS) {
+  if (want < DRIVE_CMD_MIN_CMS) {
     motor_set(0.0f);   // coast: IN1 = IN2 = low, no PWM
+    SpeedAcum = 0.0f;
     return false;
   }
-  if (moving && Speed_CM_SEC * dir < 0.0f) {
+  if (moving && have < 0.0f) {
     /* Still rolling the other way: stop first, drive when it stands */
     motor_brake();
+    SpeedAcum = 0.0f;
     intFreeze = true;
     return false;
   }
 
-  float pct = MOTOR_MIN_PCT + fabsf(control_cm_s) * MOTOR_PCT_PER_CMS;
+  /* I term. A standing car is pushed harder every step (stiction, a tight
+   * spot in the drivetrain, low battery), at least KICK_RAMP_PCT_S per second. */
+  float speedErr = want - have;
+  float grow = Kvi * speedErr * dt;
   if (!moving) {
-    /* Kick-start: below MOTOR_START_PCT a standing car does not move at all.
-     * If it still stands (low battery, carpet), push harder every step. */
-    float kick = MOTOR_START_PCT + KICK_RAMP_PCT_S * stallTime;
-    if (pct < kick)
-      pct = kick;
+    if (grow < KICK_RAMP_PCT_S * dt)
+      grow = KICK_RAMP_PCT_S * dt;
     intFreeze = true;
-    stallTime += DRIVE_PERIOD_MS / 1000.0f;
+    stallTime += dt;
   } else {
     stallTime = 0.0f;
   }
+  SpeedAcum += grow;
+  if (SpeedAcum > SPEED_I_MAX_PCT)  SpeedAcum = SPEED_I_MAX_PCT;
+  if (SpeedAcum < -SPEED_I_MAX_PCT) SpeedAcum = -SPEED_I_MAX_PCT;
+
+  float pct = MOTOR_MIN_PCT + want * MOTOR_PCT_PER_CMS + Kvp * speedErr + SpeedAcum;
+  if (!moving && pct < MOTOR_START_PCT)
+    pct = MOTOR_START_PCT;
+
   if (pct >= 100.0f) {
     pct = 100.0f;
     outSat = (int) dir;
+    if (grow > 0.0f) SpeedAcum -= grow;   // anti-windup: the motor is at its limit
+  }
+  if (pct <= 0.0f) {
+    /* Rolling faster than the command: let friction slow it down */
+    if (grow < 0.0f) SpeedAcum -= grow;
+    motor_set(0.0f);
+    return true;
   }
   motor_set(dir * pct);
   return true;
@@ -300,7 +336,8 @@ void Set_Speed_cm_s(float target_cm_s) {
     return;
   }
   stallTime = 0.0f;
-  openLoopCms = target_cm_s;   // applied by drive_update(), which also kick-starts
+  SpeedAcum = 0.0f;
+  openLoopCms = target_cm_s;   // applied by drive_update(): the speed loop holds it
 }
 
 void drive_cancel(void) {
@@ -312,6 +349,7 @@ void drive_cancel(void) {
 void drive_stop(void) {
   drive_cancel();
   ErrorAcum = 0.0f;
+  SpeedAcum = 0.0f;
   motor_set(0.0f);
 }
 
@@ -327,6 +365,7 @@ static void finish_run(int result) {
   SP_Vel = 0.0f;
   openLoopCms = 0.0f;
   ErrorAcum = 0.0f;
+  SpeedAcum = 0.0f;
   motor_set(0.0f);
   runResult = result;
 }
@@ -390,7 +429,7 @@ void drive_update(void) {
   else if (sonarCm > OBST_CLEAR_CM) obstacle = false;
   sonar_trigger();
 
-  /* No run: only the open-loop "v" command drives from here */
+  /* No run: only the "v" command (hold a speed) drives from here */
   if (state == DRIVE_OFF) {
     if (openLoopCms != 0.0f) {
       Apply_Motor_PWM(openLoopCms);
@@ -432,6 +471,8 @@ void drive_update(void) {
   if (state != DRIVE_SETTLE) {
     /* Position loop: PID on Pos_Ref - Real_Dist, SP_Vel as feed-forward */
     float pid_correction = ControlPID(Pos_Ref, Real_Dist, elapsedTime);
+    if (pid_correction > PID_OUT_MAX_CMS)  pid_correction = PID_OUT_MAX_CMS;
+    if (pid_correction < -PID_OUT_MAX_CMS) pid_correction = -PID_OUT_MAX_CMS;
     float total_command_cm_s = SP_Vel + pid_correction;
 
     if (total_command_cm_s * runDir > 0.0f) {
@@ -443,6 +484,7 @@ void drive_update(void) {
       outSat = 0;
       intFreeze = false;
       stallTime = 0.0f;
+      SpeedAcum = 0.0f;
       if (moving && Speed_CM_SEC * runDir > 0.0f && fabsf(error) > POS_TOL_CM)
         motor_brake();
       else
@@ -462,6 +504,8 @@ void drive_update(void) {
   intFreeze = true;
   float command_cm_s = ControlPID(Pos_Ref, Real_Dist, elapsedTime);
   ErrorAcum = 0.0f;
+  if (command_cm_s > PID_OUT_MAX_CMS)  command_cm_s = PID_OUT_MAX_CMS;
+  if (command_cm_s < -PID_OUT_MAX_CMS) command_cm_s = -PID_OUT_MAX_CMS;
 
   if (fabsf(error) <= POS_TOL_CM) {
     /* On target: brake until it stands, then the run is done */
