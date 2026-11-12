@@ -49,6 +49,24 @@ void motor_brake(void) {
   __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, __HAL_TIM_GET_AUTORELOAD(&htim1) + 1);
 }
 
+/* Motor PWM frequency ("pf" command), for testing on the car.
+ * CubeMX sets TIM1 to 5 kHz (84 MHz / 16800, prescaler 0). A prescaler of
+ * n - 1 divides that by n, and the duty resolution stays the same.
+ * Why: the PWM is on the L298N enable pin, so the motor coasts between
+ * pulses. At 5 kHz the pulses are too short to build up current at low
+ * duty: the car needed 90 % to start (run of 2026-11-12). Longer pulses
+ * (100..500 Hz) give more torque at the same duty. Returns the real value. */
+float motor_pwm_hz(float hz) {
+  if (hz < 50.0f)   hz = 50.0f;
+  if (hz > 5000.0f) hz = 5000.0f;
+  uint32_t n = (uint32_t)(5000.0f / hz + 0.5f);
+  if (n < 1) n = 1;
+  __HAL_TIM_SET_PRESCALER(&htim1, n - 1);
+  return 5000.0f / n;
+}
+
+float motor_pwm_hz_now(void) { return 5000.0f / (htim1.Instance->PSC + 1); }
+
 /* ----------------------------------------------------------------- servo */
 /* TIM2 ticks at 1 MHz with a 20 ms period, so the compare value is the pulse in us */
 uint32_t servoUs = SERVO_PULSE_CENTER;

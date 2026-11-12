@@ -22,6 +22,8 @@ void     encoder_zero(void);
 extern float motorPct;
 void     motor_set(float pct);
 void     motor_brake(void);
+float    motor_pwm_hz(float hz);     /* set the PWM frequency (50..5000), returns the real value */
+float    motor_pwm_hz_now(void);
 
 /* steering servo: pulse width in microseconds (SERVO_PULSE_* in car_config.h) */
 extern uint32_t servoUs;

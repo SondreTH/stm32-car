@@ -53,6 +53,7 @@ static void print_help(void) {
   say("kp ki kd <gain>  PID gains, e.g. kp 3");
   say("ms / mo <pct>  motor % to start / to keep rolling   mg <pct per cm/s>");
   say("vb <volts>  battery voltage from a multimeter, calibrates the reading");
+  say("pf <Hz>   motor PWM frequency 50..5000 (test: lower = more torque at low %)");
   lb_clear(); lb_str("B1 / start button: "); lb_float(BUTTON_RUN_M, 2); lb_str(" m run after ");
   lb_float(BUTTON_DELAY_MS / 1000.0f, 1); lb_str(" s"); lb_send(false);
 }
@@ -65,6 +66,7 @@ static void print_settings(void) {
   lb_send(false);
   lb_clear(); lb_str("motor ms="); lb_float(MOTOR_START_PCT, 1); lb_str(" mo="); lb_float(MOTOR_MIN_PCT, 1);
   lb_str(" mg="); lb_float(MOTOR_PCT_PER_CMS, 2);
+  lb_str(" pf="); lb_float(motor_pwm_hz_now(), 0);
   lb_str(" sonar="); lb_float(sonarCm, 0); lb_str("cm");
   lb_str(" batt="); lb_float(battery_volts(), 2); lb_str("V (PA4 "); lb_float(battery_pin_volts(), 2);
   lb_str("V x "); lb_float(BATT_DIVIDER, 2); lb_str(")");
@@ -241,6 +243,11 @@ static void handle_command(char *line) {
     BATT_DIVIDER = a2 / pin;
     lb_clear(); lb_str("OK BATT_DIVIDER = "); lb_float(BATT_DIVIDER, 2);
     lb_str(": copy it to car_config.c"); lb_send(false);
+    return;
+  }
+  if (c == 'P' && c2 == 'f') {   /* motor PWM frequency, see motor_pwm_hz() */
+    if (a2 < 50 || a2 > 5000) { say("ERR pf <Hz>, 50..5000"); return; }
+    lb_clear(); lb_str("OK motor PWM "); lb_float(motor_pwm_hz(a2), 0); lb_str(" Hz"); lb_send(false);
     return;
   }
 
