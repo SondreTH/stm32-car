@@ -12,22 +12,18 @@
  * ===================================================================== */
 #include "main.h"
 #include "car_oled.h"
+#include "car_config.h"
 #include <string.h>
 
 extern I2C_HandleTypeDef hi2c1;   /* PB8 SCL, PB9 SDA */
 
 #define OLED_PAGES  (OLED_HEIGHT / 8)
-#define I2C_TIMEOUT 15            /* ms per transfer */
+#define I2C_TIMEOUT 10            /* ms per transfer; a 128-byte page takes ~3 ms at 400 kHz */
 
 static uint8_t fb[OLED_PAGES][OLED_WIDTH];
 static uint8_t addr = 0;          /* 7-bit I2C address, 0 = no display */
 
-uint8_t oled_get_addr(void) {
-  return addr;
-}
-
 static bool send(uint8_t control, const uint8_t *d, uint16_t n) {
-  if (!addr) return false;
   return HAL_I2C_Mem_Write(&hi2c1, (uint16_t)(addr << 1), control, I2C_MEMADD_SIZE_8BIT,
                            (uint8_t *)d, n, I2C_TIMEOUT) == HAL_OK;
 }
@@ -53,16 +49,12 @@ static const uint8_t initCmds[] = {
 
 uint8_t oled_init(void) {
   addr = 0;
-  HAL_I2C_Init(&hi2c1);   /* Reset I2C peripheral state in case of stuck flags */
-  for (uint8_t a = 0x3C; a <= 0x3D && !addr; a++) {
-    if (HAL_I2C_IsDeviceReady(&hi2c1, (uint16_t)(a << 1), 2, I2C_TIMEOUT) == HAL_OK) {
-      addr = a;
-    }
-  }
+  for (uint8_t a = 0x3C; a <= 0x3D && !addr; a++)
+    if (HAL_I2C_IsDeviceReady(&hi2c1, (uint16_t)(a << 1), 2, I2C_TIMEOUT) == HAL_OK) addr = a;
   if (!addr) return 0;
 
   static const uint8_t displayOn = 0xAF;
-  if (!send(0x00, initCmds, sizeof(initCmds))) { addr = 0; return 0; }
+  if (!send(0x00, initCmds, sizeof initCmds)) { addr = 0; return 0; }
   oled_clear();
   if (!oled_update()) return 0;            /* clear the RAM before switching on */
   if (!send(0x00, &displayOn, 1)) { addr = 0; return 0; }
@@ -155,7 +147,7 @@ int oled_text(int x, int y, const char *s, int scale) {
   return x;
 }
 
-/* integer without printf */
+/* integer without printf (same reason as lb_int in car_comms.c) */
 int oled_int(int x, int y, int32_t v, int scale) {
   char t[12];
   int n = sizeof t - 1;
@@ -182,65 +174,4 @@ int oled_float(int x, int y, float v, int decimals, int scale) {
   for (int32_t d = m / 10; d > 0 && n < (int)sizeof t - 1; d /= 10) t[n++] = (char)('0' + (f / d) % 10);
   t[n] = 0;
   return oled_text(x, y, t, scale);
-}
-
-/* ------------------------------------------------------------- car status */
-void oled_draw_car_status(float dist_cm, float speed_cms, float set_speed_cms,
-                          int drive_state, float target_m, float sonar_cm,
-                          float mot_pct, float batt_volts) {
-  static const char *const phase[] = { "IDLE", "ACCEL", "CRUISE", "DECEL", "VELOCITY" };
-
-  oled_clear();
-
-  /* --- Top header: Name, Battery voltage, Sonar distance --- */
-  oled_text(0, 3, "Ninjago", 1);
-
-  int x = oled_float(54, 3, batt_volts, 1, 1);
-  oled_text(x, 3, "V", 1);
-
-  if (sonar_cm >= 200.0f || sonar_cm < 2.0f) {
-    oled_text(88, 3, "---cm", 1);
-  } else {
-    x = oled_int(88, 3, (int32_t)sonar_cm, 1);
-    oled_text(x, 3, "cm", 1);
-  }
-  oled_fill(0, 13, OLED_WIDTH, 1, true); /* divider line between yellow and blue */
-
-  /* --- Row 2 (y = 18): State / Obstacle alert, Target distance --- */
-  if (sonar_cm <= 30.0f && sonar_cm > 2.0f) {
-    oled_text(0, 18, "OBSTACLE", 1);
-  } else if (drive_state >= 1 && drive_state <= 4) {
-    oled_text(0, 18, phase[drive_state], 1);
-  } else {
-    oled_text(0, 18, (mot_pct != 0.0f) ? "MANUAL" : phase[0], 1);
-  }
-
-  if (drive_state >= 1 && drive_state <= 3 && target_m > 0.01f) {
-    x = oled_float(72, 18, target_m, 2, 1);
-    oled_text(x, 18, " m", 1);
-  }
-
-  /* --- Row 3 (y = 28..36): Traveled distance (scale 2), Motor % --- */
-  x = oled_float(0, 28, dist_cm, 1, 2);
-  oled_text(x, 36, " cm", 1);
-
-  x = oled_int(98, 36, (int32_t)mot_pct, 1);
-  oled_text(x, 36, "%", 1);
-
-  /* --- Row 4 (y = 45): Measured speed & Setpoint --- */
-  x = oled_float(0, 45, speed_cms, 1, 1);
-  oled_text(x, 45, " cm/s", 1);
-
-  x = oled_text(66, 45, "set ", 1);
-  oled_float(x, 45, set_speed_cms, 1, 1);
-
-  /* --- Row 5 (y = 53): Motor throttle bar --- */
-  oled_frame(0, 53, OLED_WIDTH, 11);
-  oled_fill(OLED_WIDTH / 2, 52, 1, 12, true); /* center zero tick */
-  int w = (int)(mot_pct * (OLED_WIDTH / 2 - 2) / 100.0f);
-  if (w > 0) {
-    oled_fill(OLED_WIDTH / 2, 55, w, 7, true);
-  } else if (w < 0) {
-    oled_fill(OLED_WIDTH / 2 + w, 55, -w, 7, true);
-  }
 }
