@@ -38,7 +38,7 @@
 /* Speed Profile Variables (M2.9 PDF). Sn, t1, t2, T are always positive;
  * the direction of the run is in runDir. */
 volatile float time_ctl = 0.0f; // Current elapsed time tc (seconds)
-volatile float Sn = 18.0f;   // Nominal Speed in cm/s
+volatile float Sn = 30.0f;   // Nominal Speed in cm/s
 float t1 = 2.0f;             // Acceleration time 'a' (seconds)
 float d_ramp = 2.0f;         // Deceleration time 'd' (seconds)
 float t2 = 8.0f;             // Time when deceleration starts: T - d (seconds)
