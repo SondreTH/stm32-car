@@ -6,7 +6,7 @@
  * TIM5 counts every edge of A and B (x4). */
 float COUNTS_PER_METER = 1035.0f;
 
-float DRIVE_SPEED_CMS = 18.0f;
+float DRIVE_SPEED_CMS = 30.0f;
 float POS_TOL_CM      = 1.0f;
 
 /* Motor, at MOTOR_PWM_HZ = 100 Hz. From the open-loop steps of 2026-11-12
