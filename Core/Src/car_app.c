@@ -13,6 +13,10 @@
  *   sp si     speed loop gains             pf <Hz>  motor PWM frequency
  *   kh <us/deg>  heading hold (0 = off)    sc <us>  servo pulse for straight
  *   Y         zero the heading             cal  steering calibration drive
+ *   go <n>    drive n laps of the route (car_route.c), report every step
+ *   rl / rc / rd   list / clear the lap / load the 2 m test square
+ *   rs <m>  rt <deg>  rw <s>   add a straight / turn (+ left) / wait
+ *   tv <cm/s> speed in route turns         khi  heading hold I term
  *   v <cm/s>  hold a speed (speed loop)    s   stop (coast)
  *   f / b     forward / back at 60 %       1..6  50..100 %, same direction
  *   l c r     steer left / centre / right
@@ -34,6 +38,7 @@
 #include "car_drive.h"
 #include "car_oled.h"
 #include "car_heading.h"
+#include "car_route.h"
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
@@ -64,6 +69,10 @@ static void print_help(void) {
   say("sp / si <gain>  speed loop gains     kh <us/deg>  heading hold, 0 = off");
   say("sc <us>   servo pulse that drives straight   Y  zero the heading");
   say("cal       steering calibration: drives ~30 s in curves, needs 5 x 2 m");
+  say("go <n>    drive n laps of the route, a report after every step and lap. s = stop");
+  say("rl  list the lap   rc  clear it   rd  load the 2 m test square (needs 3 x 3 m)");
+  say("rs <m>  add a straight   rt <deg>  add a turn, + = left   rw <s>  add a wait");
+  say("tv <cm/s> speed in route turns   khi <us per deg s>  heading hold I term, 0 = off");
   lb_clear(); lb_str("B1 / start button: "); lb_float(BUTTON_RUN_M, 2); lb_str(" m run after ");
   lb_float(BUTTON_DELAY_MS / 1000.0f, 1); lb_str(" s"); lb_send(false);
 }
@@ -76,6 +85,7 @@ static void print_settings(void) {
   lb_str(" sp="); lb_float(Kvp, 2); lb_str(" si="); lb_float(Kvi, 2);
   lb_send(false);
   lb_clear(); lb_str("steer sc="); lb_float(SERVO_CENTER_US, 0); lb_str(" kh="); lb_float(STEER_KH, 1);
+  lb_str(" khi="); lb_float(STEER_KHI, 1); lb_str(" tv="); lb_float(TURN_SPEED_CMS, 1);
   if (imuOk) { lb_str(" yaw="); lb_float(yawDeg, 1); lb_str("deg rate="); lb_float(yawRateDps, 1);
                lb_str("dps bias="); lb_float(gyroBiasDps, 2); }
   else lb_str(" gyro NOT found");
@@ -92,7 +102,7 @@ static void print_settings(void) {
 }
 
 static void telemetry_header(void) {
-  say("t_ms,state,sp_cms,speed_cms,dist_cm,counts,motor_pct,ref_cm,sonar_cm,yaw_deg,servo_us,batt_v");
+  say("t_ms,state,sp_cms,speed_cms,dist_cm,counts,motor_pct,ref_cm,sonar_cm,yaw_deg,servo_us,batt_v,step");
 }
 
 static void telemetry_send(void) {
@@ -106,9 +116,10 @@ static void telemetry_send(void) {
   lb_float(motorPct, 1);       lb_str(",");
   lb_float(Pos_Ref, 1);        lb_str(",");
   lb_float(sonarCm, 0);        lb_str(",");
-  lb_float(state != 0 ? headingErrDeg : yawDeg, 1); lb_str(",");
+  lb_float(state != 0 || route_running() ? headingErrDeg : yawDeg, 1); lb_str(",");
   lb_uint(servoUs);            lb_str(",");
-  lb_float(battV, 2);
+  lb_float(battV, 2);          lb_str(",");
+  lb_int(route_step());
   lb_send(true);
 }
 
@@ -150,10 +161,16 @@ static void oled_draw_status(void) {
     x = oled_text(0, 18, "GO IN ", 1);
     x = oled_float(x, 18, (int32_t)(BUTTON_DELAY_MS - (HAL_GetTick() - armedMs)) / 1000.0f, 1, 1);
     oled_text(x, 18, "s", 1);
-  } else if (state != 0 && obstacle) oled_text(0, 18, "OBSTACLE", 1);
+  } else if (route_phase_name()) oled_text(0, 18, route_phase_name(), 1);
+  else if (state != 0 && obstacle) oled_text(0, 18, "OBSTACLE", 1);
   else if (state >= DRIVE_ACCEL && state <= DRIVE_SETTLE) oled_text(0, 18, phase[state], 1);
   else oled_text(0, 18, motorPct != 0 ? "MANUAL" : phase[0], 1);
-  if (armed || state != 0) {
+  if (route_running()) {   /* lap and step instead of the distance */
+    x = oled_text(72, 18, "L", 1);
+    x = oled_int(x, 18, route_lap(), 1);
+    x = oled_text(x, 18, " #", 1);
+    oled_int(x, 18, route_step(), 1);
+  } else if (armed || state != 0) {
     x = oled_float(72, 18, armed ? BUTTON_RUN_M : target_dist_cm / 100.0f, 2, 1);
     oled_text(x, 18, " m", 1);
   }
@@ -168,7 +185,7 @@ static void oled_draw_status(void) {
   x = oled_float(0, 45, AverageSpeed, 1, 1);
   oled_text(x, 45, " cm/s", 1);
   if (imuOk) {   /* heading: off course during a run, total otherwise */
-    x = oled_float(72, 45, state != 0 ? headingErrDeg : yawDeg, 1, 1);
+    x = oled_float(72, 45, state != 0 || route_running() ? headingErrDeg : yawDeg, 1, 1);
     oled_text(x, 45, " deg", 1);
   } else {
     x = oled_text(66, 45, "set ", 1);
@@ -295,7 +312,7 @@ static void cal_poll(void) {
 /* B1 or PB0: arm on the press, start the run BUTTON_DELAY_MS later */
 static void button_poll(void) {
   bool b = start_pressed();
-  if (b && !btnWas && state == 0 && !armed) {
+  if (b && !btnWas && state == 0 && !armed && !route_running()) {
     armed = true;
     armedMs = HAL_GetTick();
     lb_clear(); lb_str("button: "); lb_float(BUTTON_RUN_M, 2); lb_str(" m run in ");
@@ -309,8 +326,8 @@ static void button_poll(void) {
   }
 }
 
-/* any manual command ends a run, a calibration drive and a pending button start */
-static void manual(void) { armed = false; cal_stop(NULL); drive_cancel(); }
+/* any manual command ends a run, a route, a calibration drive and a pending button start */
+static void manual(void) { armed = false; cal_stop(NULL); route_stop("ROUTE stopped"); drive_cancel(); }
 
 /* the number after the letters of a command: "tol 1.5" -> 1.5, 0 if there is none */
 static float number_after(const char *s) {
@@ -392,6 +409,12 @@ static void handle_command(char *line) {
     print_settings();
     return;
   }
+  if (c == 'K' && c2 == 'h' && tolower((unsigned char)line[2]) == 'i') {   /* khi: heading hold I term */
+    if (a2 < 0) { say("ERR khi is positive, 0 = off"); return; }
+    STEER_KHI = a2;
+    print_settings();
+    return;
+  }
   if (c == 'K' && c2 == 'h') {   /* heading hold gain, may be negative to flip the direction */
     STEER_KH = a2;
     print_settings();
@@ -405,6 +428,34 @@ static void handle_command(char *line) {
     say("OK steering calibration, about 30 s. Needs a clear strip 5 m long, 2 m wide. s = stop");
     return;
   }
+  /* route: go <laps>, rl rc rd, rs <m> rt <deg> rw <s>, tv <cm/s> */
+  if (c == 'G' && c2 == 'o') {
+    manual();
+    int n = (a2 >= 1.0f) ? (int)a2 : 1;
+    if (n > 50) { say("ERR at most 50 laps"); return; }
+    if (route_start(n)) {
+      lb_clear(); lb_str("OK route, "); lb_int(n); lb_str(n == 1 ? " lap" : " laps"); lb_str(". s = stop"); lb_send(false);
+    }
+    return;
+  }
+  if (c == 'R' && (c2 == 'l' || c2 == 'c' || c2 == 'd' || c2 == 's' || c2 == 't' || c2 == 'w')) {
+    if (route_running() && c2 != 'l') { say("ERR not while the route runs: s first"); return; }
+    if (c2 == 'c') { route_clear(); say("OK lap cleared"); return; }
+    if (c2 == 'd') route_default();
+    if (c2 == 's' && (a2 < 0.05f || a2 > 50.0f)) { say("ERR rs <metres>, forward, 0.05..50"); return; }
+    if (c2 == 't' && (fabsf(a2) < 5.0f || fabsf(a2) > 180.0f)) { say("ERR rt <degrees>, + = left, 5..180 either way"); return; }
+    if (c2 == 'w' && (a2 < 0.5f || a2 > 120.0f)) { say("ERR rw <seconds>, 0.5..120"); return; }
+    char type = (c2 == 's') ? STEP_STRAIGHT : (c2 == 't') ? STEP_TURN : STEP_WAIT;
+    if ((c2 == 's' || c2 == 't' || c2 == 'w') && !route_add(type, a2)) { say("ERR the lap is full"); return; }
+    route_list();
+    return;
+  }
+  if (c == 'T' && c2 == 'v') {
+    if (a2 < 3.0f || a2 > DRIVE_MAX_CMS) { say("ERR tv <cm/s>, speed in route turns"); return; }
+    TURN_SPEED_CMS = a2;
+    print_settings();
+    return;
+  }
   if (c == 'P' && c2 == 'f') {   /* motor PWM frequency, see motor_pwm_hz() */
     if (a2 < 50 || a2 > 5000) { say("ERR pf <Hz>, 50..5000"); return; }
     lb_clear(); lb_str("OK motor PWM "); lb_float(motor_pwm_hz(a2), 0); lb_str(" Hz"); lb_send(false);
@@ -415,6 +466,7 @@ static void handle_command(char *line) {
     if (fabsf(a1) >= 0.01f) {
       armed = false;
       cal_stop(NULL);
+      route_stop("ROUTE stopped");
       if (drive_start(a1)) {
         lb_clear(); lb_str("OK run "); lb_float(a1, 2); lb_str(" m in "); lb_float(T, 1); lb_str(" s at ");
         lb_float(Sn, 1); lb_str(" cm/s"); lb_send(false);
@@ -446,7 +498,7 @@ static void handle_command(char *line) {
   else if (c == 'M') { if (a1 > 0) COUNTS_PER_METER = a1; print_settings(); }
   else if (c == 'T') { telemPeriodMs = (a1 > 0) ? (uint32_t)(1000.0f / a1) : 0; if (telemPeriodMs) telemetry_header(); }
   else if (c == 'G') print_settings();
-  else if (c == 'Y') { yawDeg = 0.0f; say("OK heading zeroed"); }
+  else if (c == 'Y') { if (route_running()) say("ERR not while the route runs"); else { yawDeg = 0.0f; say("OK heading zeroed"); } }
   else if (c == 'I') i2c_report();
   else if (c == '?' || c == 'H') print_help();
   else say("ERR unknown command, type ?");
@@ -459,6 +511,7 @@ void App_Init(void) {
   say("MR2006B Team 7 (Ninjago) car ready. Type ? for commands.");
   oled_start();
   gyro_start();
+  route_init();
   print_settings();
 }
 
@@ -472,7 +525,9 @@ void App_Loop(void) {
   if (result != RUN_NONE) {
     report_run(result);
     cal_stop(NULL);   /* the speed hold gave up (wheel blocked): end the calibration too */
+    route_run_ended(result);
   }
+  route_poll();
   /* the control step runs in the TIM3 interrupt; redraw the OLED (~25 ms)
    * after every second step */
   static uint32_t lastStep = 0;

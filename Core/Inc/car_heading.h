@@ -13,11 +13,17 @@ extern "C" {
 extern bool  imuOk;                  /* the MPU-6050 answers                              */
 extern volatile float yawDeg;        /* heading since reset, degrees, + = turned LEFT     */
 extern volatile float yawRateDps;    /* turn rate, degrees per second, bias removed       */
-extern volatile float headingErrDeg; /* during a run: heading minus heading at the start  */
+extern volatile float headingErrDeg; /* while steering: heading minus target heading      */
+extern volatile float headingTargetDeg; /* the heading the steering holds                 */
 extern float gyroBiasDps;            /* what the gyro reads while standing still          */
 
 bool heading_init(void);   /* wake the sensor and measure the bias: the car must stand still (0.6 s) */
 void heading_poll(void);   /* call from the main loop: reads the gyro, steers during a run */
+
+/* for a route (car_route.c) */
+void heading_target(float deg);   /* steer to this heading; runs no longer reset it      */
+void heading_turn(bool on);       /* steer to the target also outside a distance run     */
+void heading_release(void);       /* back to normal: a run holds the heading it starts at */
 
 #ifdef __cplusplus
 }

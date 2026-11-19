@@ -13,10 +13,23 @@
  * Heading hold: when a distance run starts, the heading at that moment is
  * remembered. During the run the servo steers against the difference:
  *
- *   servo (us) = SERVO_CENTER_US + STEER_KH * (yawDeg - heading at start)
+ *   servo (us) = SERVO_CENTER_US + STEER_KH * (yawDeg - target heading)
  *
- * so a car that drifts left steers right until it is straight again. In a
+ * so a car that drifts left steers right until it is straight again.
+ * A car that pulls to one side (servo centre a bit off, play in the
+ * steering) needs a steady steering offset, which P alone only gives with
+ * a steady error. The I term (STEER_KHI, M2.10) adds up the error over
+ * time and supplies that offset, so the error goes back to zero:
+ *
+ *   servo (us) = SERVO_CENTER_US + STEER_KH * e + STEER_KHI * integral(e dt)
+ *
+ * In a
  * reverse run the steering works the other way round, so the sign flips.
+ *
+ * A route (car_route.c) sets the target heading itself: +90 degrees for a
+ * left turn. In a turn the servo is at full lock until the car is within
+ * HEADING_TURN_TOL_DEG of the new heading; then the formula above takes
+ * over again.
  *
  * Everything here runs in the main loop, not in an interrupt: the OLED
  * uses the same I2C bus from the main loop, so the two never collide. The
@@ -43,12 +56,17 @@ bool  imuOk = false;
 volatile float yawDeg = 0.0f;
 volatile float yawRateDps = 0.0f;
 volatile float headingErrDeg = 0.0f;
+volatile float headingTargetDeg = 0.0f;
 float gyroBiasDps = 0.0f;
 
 static uint32_t lastMs = 0;
 static int   failCount = 0;
 static bool  wasRunning = false;
-static float yawAtStart = 0.0f;
+static bool  wasSteering = false;
+static bool  targetFixed = false;     /* a route owns headingTargetDeg */
+static bool  turning = false;         /* a route turn: steer although no distance run */
+static float headingAcum = 0.0f;      /* I term of the heading hold: degrees x seconds */
+static float dtSteer = 0.0f;          /* seconds since the last gyro reading */
 
 static bool mpu_write(uint8_t reg, uint8_t value) {
   return HAL_I2C_Mem_Write(&hi2c1, MPU_ADDR, reg, I2C_MEMADD_SIZE_8BIT, &value, 1, 5) == HAL_OK;
@@ -93,6 +111,7 @@ bool heading_init(void) {
 
 void heading_poll(void) {
   bool running = (state != DRIVE_OFF);
+  dtSteer = 0.0f;   /* set below only when there is a new gyro reading */
 
   if (imuOk) {
     uint32_t now = HAL_GetTick();
@@ -100,6 +119,7 @@ void heading_poll(void) {
       float dt = (now - lastMs) / 1000.0f;
       if (dt > 0.1f) dt = 0.1f;
       lastMs = now;
+      dtSteer = dt;
       float r;
       if (mpu_read_rate(&r)) {
         failCount = 0;
@@ -116,18 +136,55 @@ void heading_poll(void) {
     }
   }
 
-  /* heading hold during a distance run */
-  if (running && !wasRunning) yawAtStart = yawDeg;
-  if (running && imuOk && STEER_KH != 0.0f) {
-    headingErrDeg = yawDeg - yawAtStart;                /* + = the car has turned left */
-    float dir = (target_dist_cm < 0.0f) ? -1.0f : 1.0f; /* reverse: steering acts the other way */
-    float us = SERVO_CENTER_US + dir * STEER_KH * headingErrDeg;   /* larger us = steer right */
-    if (us < SERVO_PULSE_MIN) us = SERVO_PULSE_MIN;
-    if (us > SERVO_PULSE_MAX) us = SERVO_PULSE_MAX;
-    servo_set_us((uint32_t)us);
-  } else if (running) {
-    headingErrDeg = yawDeg - yawAtStart;
+  /* Steering by the gyro: during a distance run, and during a route turn.
+   * Normally the target is the heading the run starts with. A route sets
+   * the target itself (heading_target), so a run does not overwrite it. */
+  bool steering = running || turning;
+  if (running && !wasRunning) {
+    if (!targetFixed) headingTargetDeg = yawDeg;
+    headingAcum = 0.0f;                                 /* every run starts its own I term */
   }
-  if (!running && wasRunning) servo_set_us((uint32_t)SERVO_CENTER_US);   /* run over: wheels straight */
+  if (steering) {
+    headingErrDeg = yawDeg - headingTargetDeg;          /* + = the car points left of the target */
+    if (imuOk && STEER_KH != 0.0f) {
+      /* reverse run: steering acts the other way. A turn always drives forward. */
+      float dir = (running && target_dist_cm < 0.0f) ? -1.0f : 1.0f;
+      /* I term: only on a straight, while the car rolls and is close to
+       * the heading. In a turn the error is large on purpose. */
+      if (running && !turning && fabsf(Speed_CM_SEC) >= DRIVE_MOVING_CMS && fabsf(headingErrDeg) < 10.0f)
+        headingAcum += headingErrDeg * dtSteer;
+      float iUs = 0.0f;
+      if (STEER_KHI > 0.0f) {
+        iUs = STEER_KHI * headingAcum;
+        if (iUs > HEADING_I_MAX_US)  { iUs = HEADING_I_MAX_US;  headingAcum = iUs / STEER_KHI; }
+        if (iUs < -HEADING_I_MAX_US) { iUs = -HEADING_I_MAX_US; headingAcum = iUs / STEER_KHI; }
+      } else headingAcum = 0.0f;
+      float us = SERVO_CENTER_US + dir * (STEER_KH * headingErrDeg + iUs);   /* larger us = steer right */
+      /* A turn steers at full lock until it is close to the new heading.
+       * With P only, a car that pulls to one side would stop turning a few
+       * degrees short: the small steering left would just keep it straight. */
+      if (turning && headingErrDeg < -HEADING_TURN_TOL_DEG) us = SERVO_PULSE_MIN;   /* target is to the left */
+      if (turning && headingErrDeg >  HEADING_TURN_TOL_DEG) us = SERVO_PULSE_MAX;   /* target is to the right */
+      if (us < SERVO_PULSE_MIN) us = SERVO_PULSE_MIN;
+      if (us > SERVO_PULSE_MAX) us = SERVO_PULSE_MAX;
+      servo_set_us((uint32_t)us);
+    }
+  }
+  if (!steering && wasSteering) servo_set_us((uint32_t)SERVO_CENTER_US);   /* done: wheels straight */
   wasRunning = running;
+  wasSteering = steering;
+}
+
+void heading_target(float deg) {
+  headingTargetDeg = deg;
+  targetFixed = true;
+}
+
+void heading_turn(bool on) {
+  turning = on;
+}
+
+void heading_release(void) {
+  targetFixed = false;
+  turning = false;
 }

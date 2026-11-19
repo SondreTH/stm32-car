@@ -32,3 +32,12 @@ float BATT_DIVIDER = 6.58f;
  * If the car steers further away instead of back, see IMU_YAW_SIGN. */
 float SERVO_CENTER_US = SERVO_PULSE_CENTER;
 float STEER_KH        = 15.0f;
+
+/* I term of the heading hold, us of steering per degree x second. Against
+ * the "heading creep" of 2026-11-12 (5 deg off with the servo 70-90 us to
+ * one side). Only tried in tools/route_sim so far, not on the car. */
+float STEER_KHI       = 10.0f;
+
+/* Route turns (car_route.c) drive at this speed. Slower than a straight:
+ * the car turns at full lock, and the speed loop holds it in the curve. */
+float TURN_SPEED_CMS  = 15.0f;

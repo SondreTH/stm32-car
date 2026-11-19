@@ -49,6 +49,7 @@ extern "C" {
 /* ---- MPU-6050 gyro (car_heading.c) ---- */
 #define IMU_YAW_AXIS    2     /* which gyro axis points up: 0 = X, 1 = Y, 2 = Z (module lying flat) */
 #define IMU_YAW_SIGN    1.0f  /* turning the car LEFT must make yaw go UP: else set -1.0f           */
+#define HEADING_I_MAX_US 150.0f /* the heading hold I term never steers more than this (us)       */
 
 /* ---- motor PWM ---- */
 #define MOTOR_PWM_HZ      100     /* set at start-up, "pf" changes it. PWM is on the L298N enable
@@ -83,6 +84,14 @@ extern "C" {
 
 #define MANUAL_PCT        60.0f   /* f / b commands */
 
+/* ---- route and laps (car_route.c) ---- */
+#define ROUTE_MAX_STEPS    40     /* steps in one lap                                        */
+#define ROUTE_TURN_TOL_DEG 4.0f   /* a turn is done this close to the new heading; the
+                                     heading hold of the next straight takes out the rest    */
+#define HEADING_TURN_TOL_DEG ROUTE_TURN_TOL_DEG   /* car_heading.c: full lock until this close */
+#define ROUTE_TURN_MAX_CM  400.0f /* a turn that drives further than this has gone wrong     */
+#define ROUTE_PAUSE_MS     500    /* between steps: stand still this long (gyro, servo)      */
+
 /* ---- battery warning (car_app.c). 3S LiPo: 12.6 V full, 11.1 V nominal ---- */
 #define BATT_LOW_V        9.9f    /* 3.3 V per cell: warn, stop driving and charge.
                                      Below 9.0 V (3.0 V per cell) the cells are damaged */
@@ -99,6 +108,8 @@ extern float MOTOR_PCT_PER_CMS;   /* mg  slope, % per cm/s                      
 extern float BATT_DIVIDER;        /* vb  battery volts per volt on PA4                     */
 extern float SERVO_CENTER_US;     /* sc  servo pulse that drives straight                  */
 extern float STEER_KH;            /* kh  heading hold: us of steering per degree off, 0 = off */
+extern float STEER_KHI;           /* khi heading hold I term: us per degree x second, 0 = off */
+extern float TURN_SPEED_CMS;      /* tv  speed in a route turn (speed loop, no position loop) */
 
 #ifdef __cplusplus
 }
