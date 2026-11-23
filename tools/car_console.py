@@ -3,7 +3,8 @@
 car_console.py - talk to the car from the laptop (USB cable or Bluetooth COM port)
 
   * shows everything the car prints, and sends what you type
-  * telemetry (after "T 10") is saved to logs/run_<time>.csv automatically
+  * telemetry (after "T 10") is saved to logs/run_<time>.csv automatically,
+    and so is an open-loop recording ("od"), with its plan and result as # lines
   * a DUMP from the car is saved to saved_paths/path_data_<time>.h automatically
   * !upload <file>   sends a path_data.h (or x,y,flags CSV) to the car's RAM
   * !quit            exit
@@ -13,6 +14,9 @@ Run:            python car_console.py              (lists ports)
                 python car_console.py COM5         (Windows USB, 115200)
                 python car_console.py COM7 9600    (Bluetooth COM port)
                 python car_console.py /dev/ttyACM0 (Linux/macOS)
+                python car_console.py 98:DA:20:0C:1A:63
+                                    (Linux: Bluetooth by its address, after pairing
+                                     with bluetoothctl, PIN 1234; no rfcomm needed)
 """
 import os, re, sys, threading, time
 from datetime import datetime
@@ -26,13 +30,46 @@ except ImportError:
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
+class BtSerial:
+    """Linux: the car's Bluetooth module as a socket, with the few calls of
+    serial.Serial that this script uses."""
+    def __init__(self, addr):
+        import socket
+        self.sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
+        self.sock.settimeout(15)
+        self.sock.connect((addr, 1))
+        self.sock.settimeout(0.1)
+        self.baudrate = 9600
+
+    def read(self, n):
+        import socket
+        try:
+            data = self.sock.recv(n)
+        except socket.timeout:
+            return b""
+        except OSError as e:
+            raise serial.SerialException(e)
+        if not data:
+            raise serial.SerialException("Bluetooth connection closed")
+        return data
+
+    def write(self, data):
+        self.sock.sendall(data)
+
+    def close(self):
+        self.sock.close()
+
+
 def stamp():
     return datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
 class Console:
     def __init__(self, port, baud):
-        self.ser = serial.Serial(port, baud, timeout=0.1)
+        if re.fullmatch(r"([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}", port):
+            self.ser = BtSerial(port)
+        else:
+            self.ser = serial.Serial(port, baud, timeout=0.1)
         self.running = True
         self.csv = None
         self.header = None
@@ -84,6 +121,11 @@ class Console:
             self.csv = open(fn, "w")
             self.csv.write(line + "\n")
             print(f"[logging telemetry to {fn}]")
+            return
+        if self.csv and line.startswith("# "):   # notes in an open-loop dump ("od"): plan and result
+            self.csv.write(line + "\n")
+            self.csv.flush()
+            print(line)
             return
         if self.csv and re.match(r"^\d+,", line) and line.count(",") == self.header.count(","):
             self.csv.write(line + "\n")
