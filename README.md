@@ -24,8 +24,14 @@ This is one STM32CubeIDE project, `stm32-car`, at the root of the repository.
   with Simulink.
 
 - **Heading hold.** During a run the MPU-6050 gyro measures how far the car
-  has turned, and the servo steers it back. New on 2026-11-12, not tested
-  on the car yet.
+  has turned, and the servo steers it back. Until 2026-11-22 it read the
+  wrong gyro axis (the module stands on its side), so it never really
+  worked; fixed, but not tested on the car with the right axis yet.
+- **Open-loop route.** A list of timed steps (motor %, steering, seconds)
+  that the car plays without looking at any sensor. On 2026-11-22 it
+  drove a square of four ~1 m sides and four right turns and stopped
+  30-40 cm from where it started. The encoder and gyro are recorded for a
+  report and plots. See [.claude/docs/openloop.md](.claude/docs/openloop.md).
 
 Not in the firmware yet: x/y position, following
 a recorded route, and driving around obstacles. An earlier version of the
@@ -53,6 +59,8 @@ Our code:
 | `car_hw.c` | Motor, encoder, servo, battery, sonar, I2C scan |
 | `car_oled.c` | OLED driver (SSD1306 / SH1106) with a small font |
 | `car_comms.c` | Text in and out on USB and Bluetooth without blocking |
+| `car_heading.c` | MPU-6050 gyro: heading, and the heading hold during a run |
+| `car_openloop.c` | Open-loop route: timed steps, recording, report |
 | `car_config.h`, `car_config.c` | Every number you might want to tune |
 
 ## Get it running
@@ -92,7 +100,13 @@ In generated files (`main.c`, `main.h`, `stm32f4xx_it.c`,
 Power the OLED from 3.3 V (VDD/VCC) and GND. The OLED (0x3C) and the
 MPU-6050 (0x68) share the I2C1 wires, so `I` should list both. The gyro
 is read for the heading hold; the car must stand still for a second after
-power-on while it measures the gyro's zero.
+power-on while it measures the gyro's zero. The MPU-6050 is mounted on its
+side, so the turn is measured on its X axis (`IMU_YAW_AXIS 0`). If you
+remount it, `Y`, turn the car 90 degrees left by hand and look at `G`: the
+axis that shows +90 is the one to use.
+
+**Unplugging the USB cable resets the board.** Everything typed over USB
+is lost. For runs without the cable, unplug first, then use Bluetooth.
 
 Hardware: 25GA370 12 V motor with gearbox and encoder, L298N driver, MG996R
 steering servo, HC-SR04, MPU-6050, BT04-A Bluetooth module, 3S LiPo, an
@@ -125,10 +139,16 @@ and `D 1.2` mean the same thing.
 | `s` | Stop (coast) |
 | `l` / `c` / `r` | Steer left / centre / right |
 | `P 40` | Open-loop motor %, −100..100 |
-| `X` | Stop and brake |
+| `X` | Stop and brake (weak: the L298N barely brakes) |
 | `Z` | Zero the encoder |
 | `M 1035` | Set counts per metre |
 | `T 5` | Telemetry at 5 Hz (`T 0` = off) |
+| `ol` | Show the open-loop plan |
+| `ol 3 46 350 1.5` | Set step 3: 46 % motor, steering +350 µs from straight (negative = left), 1.5 s. Motor 0 = brake. Time 0 ends the plan there |
+| `or 4` | Play the plan 4 times |
+| `og` | Run the plan 2 s later |
+| `od` | Print the recording of the last plan (CSV; the console saves it) |
+| `os 0` / `ob 0` / `ov 11` | Plan: sonar stop off / button does a 1 m run instead / battery compensation to 11 V (`ov 0` = off) |
 | `G` / `?` | Settings / help |
 | `I` | Scan I2C1, restart the OLED |
 
@@ -136,7 +156,9 @@ Values set with commands are lost at reset. Copy the good ones into
 `car_config.c` (the PID gains are at the top of `car_drive.c`).
 
 **Start buttons.** Press the blue button (B1) or the start button on PB0.
-The car does a 1 m run 1 s later. Any other drive command cancels it.
+The car runs the open-loop plan 2 s later; press again to stop it. With
+`ob 0` it does a 1 m run 1 s later instead (the old behaviour). Any other
+drive command cancels it.
 
 **CubeMonitor.** Write a distance in metres to `test_dist_m` to start a run.
 You can also tune `Kp`, `Ki` and `Kd` live, and watch `Pos_Ref`,
@@ -268,12 +290,16 @@ comes early rather than late.
 pip install pyserial matplotlib
 python tools/car_console.py                 # lists ports
 python tools/car_console.py COM5            # USB (115200)
-python tools/car_console.py COM7 9600       # Bluetooth COM port
+python tools/car_console.py COM7 9600       # Bluetooth COM port (Windows)
+python tools/car_console.py 98:DA:20:0C:1A:63   # Bluetooth on Linux, after pairing (PIN 1234)
 python tools/plot_run.py tools/logs/run_XXXX.csv
+python tools/plot_openloop.py "run A=tools/logs/ol_A.csv" "run B=tools/logs/ol_B.csv"
 tools/build_check.sh                        # compile from a terminal (Linux/macOS)
 ```
 
-Over Bluetooth, use `T 5` rather than `T 10`: 9600 baud is slow.
+Over Bluetooth, use `T 5` rather than `T 10`: the car paces the Bluetooth
+output to about 400 bytes/s, because the module drops data in longer
+bursts. The open-loop runs of 2026-11-22 are in `tools/openloop_runs/`.
 
 `tools/autopilot/` holds the path builder and the simulator of the old
 autopilot. They need the old firmware sources (below) and do not work with
