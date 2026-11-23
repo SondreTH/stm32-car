@@ -48,7 +48,7 @@ firmware had these; see [Old autopilot code](#old-autopilot-code).
 | `cad/` | 3D-printed deck plate and sonar bracket (`.scad` + `.stl`) |
 | `wiring/` | `team7_wiring.html`: what to solder where on the perfboard (open in a browser) |
 | `docs/` | [Setup and team workflow](docs/setup.md) |
-| `.claude/` | Detailed project documentation, written for Claude Code and for us |
+| `.claude/` | Detailed project documentation, written for Claude Code and for us. The to-do list for the next sessions: [.claude/docs/todo.md](.claude/docs/todo.md) |
 
 Our code:
 

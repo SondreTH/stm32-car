@@ -28,6 +28,7 @@ position, no turning by gyro, no route following yet.
 | [docs/history.md](docs/history.md) | Branches, who wrote what, how the `integration` merge was done, where the old autopilot code is |
 | [docs/openloop.md](docs/openloop.md) | The open-loop route (`car_openloop.c`), the square of 2026-11-22 and every run of that evening, what the car showed (brake, dead zone, play, wheel spin) |
 | [docs/roadmap.md](docs/roadmap.md) | Open problems, things not verified on the car, what is missing for the final challenge |
+| [docs/todo.md](docs/todo.md) | **Start here for a new session:** the checklist for the next sessions (flash, video scenarios, checks on the car, firmware for the circuit, open questions) |
 
 The README at the repo root is the team-facing version. Keep both in step
 when behaviour changes.

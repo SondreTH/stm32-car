@@ -50,16 +50,7 @@ Not run on the car yet:
 - From the 2026-11-12 list: speed swings in cruise, battery reading at low
   voltage.
 
-Next session on the car, before the full circuit test:
-
-1. `G`: the axes line should say `x=` changes when the car turns. `Y`
-   zeroes it.
-2. `kh 15`, `d2`: the heading hold for real. Watch for weaving; lower `kh`
-   if it weaves.
-3. `T 5` over Bluetooth, `cal`: the steering table. Needs 5 m x 2 m.
-4. A turn by gyro (not written yet): drive an arc until the heading has
-   changed by 90 degrees. The open-loop runs show why it is needed: the
-   same timed command turned anything from 73 to 109 degrees.
+The checklist for the next sessions is in [todo.md](todo.md).
 
 ## Plan towards the circuit
 
