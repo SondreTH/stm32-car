@@ -3,6 +3,11 @@
  *  RX: 1-byte interrupt receive into a ring buffer, re-armed every byte.
  *  TX: lines go into a ring buffer; comms_pump() starts an interrupt
  *      transmission of the next block whenever the UART is idle.
+ *  Bluetooth gets small pieces with a pause in between. The module on
+ *  the car (2026-11-22) passed on only the first ~43 bytes of a burst
+ *  and lost the next ~20 while it was busy sending over the radio, so
+ *  every line longer than that arrived cut. Pieces of BT_CHUNK bytes
+ *  with BT_GAP_MS between them get through whole (about 400 bytes/s).
  * ===================================================================== */
 #include "main.h"
 #include "car_comms.h"
@@ -13,6 +18,8 @@ extern UART_HandleTypeDef huart2;   /* USB virtual COM (ST-LINK) */
 
 #define TXQ 1024   /* power of two */
 #define RXQ 256    /* power of two */
+#define BT_CHUNK   20   /* bytes per piece to the Bluetooth module */
+#define BT_GAP_MS  20   /* pause after each piece                 */
 
 typedef struct {
   UART_HandleTypeDef *h;
@@ -23,6 +30,9 @@ typedef struct {
   uint8_t  rxByte;
   char     line[64];
   uint8_t  lineLen;
+  uint16_t maxChunk;           /* 0 = no limit */
+  uint8_t  gapMs;              /* pause after each piece */
+  volatile uint32_t doneMs;    /* when the last piece was sent */
 } Port;
 
 static Port ports[2];
@@ -33,8 +43,10 @@ static uint16_t tx_space(Port *p) { return (uint16_t)(TXQ - 1 - tx_used(p)); }
 static void port_pump(Port *p) {
   if (p->txBusy || p->txHead == p->txTail) return;
   if (p->h->gState != HAL_UART_STATE_READY) return;
+  if (p->gapMs && HAL_GetTick() - p->doneMs < p->gapMs) return;
   uint16_t tail = p->txTail, head = p->txHead;
   uint16_t len = (head > tail) ? (uint16_t)(head - tail) : (uint16_t)(TXQ - tail);  /* contiguous block */
+  if (p->maxChunk && len > p->maxChunk) len = p->maxChunk;
   p->txBusy = len;
   if (HAL_UART_Transmit_IT(p->h, &p->tx[tail], len) != HAL_OK) p->txBusy = 0;
 }
@@ -61,6 +73,7 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *h) {
   Port *p = port_of(h); if (!p) return;
   p->txTail = (uint16_t)((p->txTail + p->txBusy) & (TXQ - 1));
   p->txBusy = 0;
+  p->doneMs = HAL_GetTick();
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *h) {
@@ -81,6 +94,8 @@ void comms_init(void) {
   memset(ports, 0, sizeof(ports));
   ports[0].h = &huart2;
   ports[1].h = &huart1;
+  ports[1].maxChunk = BT_CHUNK;
+  ports[1].gapMs = BT_GAP_MS;
   for (int i = 0; i < 2; i++) HAL_UART_Receive_IT(ports[i].h, &ports[i].rxByte, 1);
 }
 
@@ -95,7 +110,7 @@ void comms_poll(void (*onLine)(char *line)) {
       char ch = (char)p->rx[p->rxTail];
       p->rxTail = (uint16_t)((p->rxTail + 1) & (RXQ - 1));
       if (ch == '\n' || ch == '\r') {
-        if (p->lineLen) { p->line[p->lineLen] = 0; p->lineLen = 0; onLine(p->line); }
+        if (p->lineLen) { p->line[p->lineLen] = 0; p->lineLen = 0; comms_from = i; onLine(p->line); }
       } else if (p->lineLen < sizeof(p->line) - 1) p->line[p->lineLen++] = ch;
     }
   }
@@ -144,3 +159,12 @@ void lb_send(bool dropIfBusy) {
 }
 
 void say(const char *s) { lb_clear(); lb_str(s); lb_send(false); }
+
+int comms_from = 0;
+
+void lb_send_to(int port) {
+  port_send(&ports[port & 1], lbBuf, lbLen, false);
+  lbLen = 0;
+}
+
+uint16_t comms_tx_free(int port) { return tx_space(&ports[port & 1]); }

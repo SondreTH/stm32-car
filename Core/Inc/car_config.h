@@ -47,7 +47,9 @@ extern "C" {
 #define SERVO_PULSE_MAX    1500   /* us, full right */
 
 /* ---- MPU-6050 gyro (car_heading.c) ---- */
-#define IMU_YAW_AXIS    2     /* which gyro axis points up: 0 = X, 1 = Y, 2 = Z (module lying flat) */
+#define IMU_YAW_AXIS    0     /* which gyro axis points up: 0 = X, 1 = Y, 2 = Z (module lying flat).
+                                 The module stands on its side: X is up. Until 2026-11-22 this
+                                 was 2, so the heading never saw a turn. "G" shows all three axes */
 #define IMU_YAW_SIGN    1.0f  /* turning the car LEFT must make yaw go UP: else set -1.0f           */
 
 /* ---- motor PWM ---- */

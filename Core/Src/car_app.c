@@ -20,7 +20,13 @@
  *   Z         zero the encoder             M <cpm>  counts per metre
  *   T <hz>    telemetry on (0 = off)       G   show settings
  *   I         I2C scan + restart the OLED  ?   help
- * B1 or the start button (PB0) starts a 1 m run after 1 s.
+ *   ol        open-loop plan: show it, or "ol <step> <motor %> <steer us> <s>"
+ *   og        run the plan (car_openloop.c)  od  print its recording (CSV)
+ *   os 0/1    sonar stop in the plan         ob 0/1  button runs the plan / a 1 m run
+ *   ov <V>    open loop: battery compensation to this voltage, 0 = off
+ *   or <n>    open loop: play the plan n times
+ * B1 or the start button (PB0) starts the open-loop plan after 2 s ("ob 0":
+ * a 1 m run after 1 s). Pressed again, it stops the plan.
  *
  * The OLED (I2C1, car_oled.c) shows the run, speed, motor %, battery and
  * sonar distance at 5 Hz. A low battery blinks "LOW BAT" there and prints a
@@ -34,6 +40,7 @@
 #include "car_drive.h"
 #include "car_oled.h"
 #include "car_heading.h"
+#include "car_openloop.h"
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
@@ -64,8 +71,13 @@ static void print_help(void) {
   say("sp / si <gain>  speed loop gains     kh <us/deg>  heading hold, 0 = off");
   say("sc <us>   servo pulse that drives straight   Y  zero the heading");
   say("cal       steering calibration: drives ~30 s in curves, needs 5 x 2 m");
-  lb_clear(); lb_str("B1 / start button: "); lb_float(BUTTON_RUN_M, 2); lb_str(" m run after ");
-  lb_float(BUTTON_DELAY_MS / 1000.0f, 1); lb_str(" s"); lb_send(false);
+  say("ol        open-loop plan: show it   ol <step> <motor %> <steer us, - = left> <s>");
+  say("og        run the plan in 2 s   od  print its recording   os 0/1 sonar stop   ob 0/1 button");
+  say("ov <V>    open loop: scale the motor % to this battery voltage, ov 0 = off");
+  say("or <n>    open loop: play the plan n times (motor 0 % in a step = brake)");
+  if (olButton) say("B1 / start button: runs the open-loop plan after 2 s, again = stop");
+  else { lb_clear(); lb_str("B1 / start button: "); lb_float(BUTTON_RUN_M, 2); lb_str(" m run after ");
+         lb_float(BUTTON_DELAY_MS / 1000.0f, 1); lb_str(" s"); lb_send(false); }
 }
 
 static void print_settings(void) {
@@ -77,7 +89,10 @@ static void print_settings(void) {
   lb_send(false);
   lb_clear(); lb_str("steer sc="); lb_float(SERVO_CENTER_US, 0); lb_str(" kh="); lb_float(STEER_KH, 1);
   if (imuOk) { lb_str(" yaw="); lb_float(yawDeg, 1); lb_str("deg rate="); lb_float(yawRateDps, 1);
-               lb_str("dps bias="); lb_float(gyroBiasDps, 2); }
+               lb_str("dps bias="); lb_float(gyroBiasDps, 2);
+               lb_str(" reads ok="); lb_uint(gyroReadsOk); lb_str(" failed="); lb_uint(gyroReadsFailed);
+               lb_str(" axes since Y: x="); lb_float(gyroAxisDeg[0], 0); lb_str(" y="); lb_float(gyroAxisDeg[1], 0);
+               lb_str(" z="); lb_float(gyroAxisDeg[2], 0); }
   else lb_str(" gyro NOT found");
   lb_send(false);
   lb_clear(); lb_str("motor ms="); lb_float(MOTOR_START_PCT, 1); lb_str(" mo="); lb_float(MOTOR_MIN_PCT, 1);
@@ -123,7 +138,7 @@ static void oled_start(void) {
 }
 
 static void gyro_start(void) {
-  if (state != 0) return;   /* the bias needs a standing car */
+  if (state != 0 || ol_busy()) return;   /* the bias needs a standing car */
   lb_clear();
   if (heading_init()) { lb_str("gyro OK, bias "); lb_float(gyroBiasDps, 2); lb_str(" deg/s (car must stand still at start-up)"); }
   else                  lb_str("gyro (MPU-6050) not found: no heading hold. Check wiring, then type I");
@@ -146,14 +161,23 @@ static void oled_draw_status(void) {
   oled_fill(0, 13, OLED_WIDTH, 1, true);
 
   /* what the car is doing, and the distance of the run */
-  if (armed) {
+  int32_t olLeft = ol_armed_ms_left();
+  if (armed || olLeft >= 0) {
     x = oled_text(0, 18, "GO IN ", 1);
-    x = oled_float(x, 18, (int32_t)(BUTTON_DELAY_MS - (HAL_GetTick() - armedMs)) / 1000.0f, 1, 1);
+    x = oled_float(x, 18, (armed ? (int32_t)(BUTTON_DELAY_MS - (HAL_GetTick() - armedMs)) : olLeft) / 1000.0f, 1, 1);
     oled_text(x, 18, "s", 1);
+    if (olLeft >= 0) oled_text(72, 18, "OPEN", 1);
+  } else if (ol_step_now() > 0) {   /* open-loop plan: step and time left */
+    x = oled_text(0, 18, "OPEN ", 1);
+    x = oled_int(x, 18, ol_step_now(), 1);
+    x = oled_text(x, 18, "/", 1);
+    oled_int(x, 18, ol_run_steps(), 1);
+    x = oled_float(72, 18, ol_secs_left(), 1, 1);
+    oled_text(x, 18, " s", 1);
   } else if (state != 0 && obstacle) oled_text(0, 18, "OBSTACLE", 1);
   else if (state >= DRIVE_ACCEL && state <= DRIVE_SETTLE) oled_text(0, 18, phase[state], 1);
   else oled_text(0, 18, motorPct != 0 ? "MANUAL" : phase[0], 1);
-  if (armed || state != 0) {
+  if ((armed || state != 0) && olLeft < 0 && ol_step_now() == 0) {
     x = oled_float(72, 18, armed ? BUTTON_RUN_M : target_dist_cm / 100.0f, 2, 1);
     oled_text(x, 18, " m", 1);
   }
@@ -292,10 +316,14 @@ static void cal_poll(void) {
 }
 
 /* ------------------------------------------------------- start button */
-/* B1 or PB0: arm on the press, start the run BUTTON_DELAY_MS later */
+/* B1 or PB0: arm on the press, start the run BUTTON_DELAY_MS later.
+ * With "ob 1" it starts the open-loop plan instead, and stops it when
+ * pressed while the plan is armed or running. */
 static void button_poll(void) {
   bool b = start_pressed();
-  if (b && !btnWas && state == 0 && !armed) {
+  if (b && !btnWas && ol_busy()) ol_stop("stopped by the button");
+  else if (b && !btnWas && olButton && state == 0 && !armed) { cal_stop(NULL); ol_arm(); }
+  else if (b && !btnWas && !olButton && state == 0 && !armed) {
     armed = true;
     armedMs = HAL_GetTick();
     lb_clear(); lb_str("button: "); lb_float(BUTTON_RUN_M, 2); lb_str(" m run in ");
@@ -310,7 +338,7 @@ static void button_poll(void) {
 }
 
 /* any manual command ends a run, a calibration drive and a pending button start */
-static void manual(void) { armed = false; cal_stop(NULL); drive_cancel(); }
+static void manual(void) { armed = false; cal_stop(NULL); ol_cancel(); drive_cancel(); }
 
 /* the number after the letters of a command: "tol 1.5" -> 1.5, 0 if there is none */
 static float number_after(const char *s) {
@@ -411,10 +439,13 @@ static void handle_command(char *line) {
     return;
   }
 
+  if (c == 'O') { ol_command(line); return; }   /* open loop: ol, og, od, os, ob */
+
   if (c == 'D') {
     if (fabsf(a1) >= 0.01f) {
       armed = false;
       cal_stop(NULL);
+      ol_cancel();
       if (drive_start(a1)) {
         lb_clear(); lb_str("OK run "); lb_float(a1, 2); lb_str(" m in "); lb_float(T, 1); lb_str(" s at ");
         lb_float(Sn, 1); lb_str(" cm/s"); lb_send(false);
@@ -427,6 +458,7 @@ static void handle_command(char *line) {
   else if (c == 'V') { manual(); Set_Speed_cm_s(a1); say("OK speed"); }
   else if (c == 'F') { manual(); motor_set(MANUAL_PCT); say("OK forward"); }
   else if (c == 'B') { manual(); motor_set(-MANUAL_PCT); say("OK back"); }
+  else if (c == 'S' && ol_busy()) { ol_stop("stopped by s"); say("OK stop"); }   /* brakes, still reports */
   else if (c == 'S') { manual(); drive_stop(); say("OK stop"); }
   else if (c >= '1' && c <= '6') {   /* only changes the speed while moving */
     float pct = (float)((c - '0' + 4) * 10);
@@ -442,11 +474,11 @@ static void handle_command(char *line) {
   else if (c == 'R') { servo_set_us(SERVO_PULSE_MAX);    say("OK right"); }
   else if (c == 'X') { manual(); motor_brake(); say("OK stop + brake"); }
   else if (c == 'P') { manual(); motor_set(a1); say("OK open-loop"); }
-  else if (c == 'Z') { if (state) say("ERR not during a run"); else { encoder_zero(); say("OK zeroed"); } }
+  else if (c == 'Z') { if (state || ol_busy()) say("ERR not during a run"); else { encoder_zero(); say("OK zeroed"); } }
   else if (c == 'M') { if (a1 > 0) COUNTS_PER_METER = a1; print_settings(); }
   else if (c == 'T') { telemPeriodMs = (a1 > 0) ? (uint32_t)(1000.0f / a1) : 0; if (telemPeriodMs) telemetry_header(); }
   else if (c == 'G') print_settings();
-  else if (c == 'Y') { yawDeg = 0.0f; say("OK heading zeroed"); }
+  else if (c == 'Y') { yawDeg = 0.0f; for (int k = 0; k < 3; k++) gyroAxisDeg[k] = 0.0f; say("OK heading zeroed"); }
   else if (c == 'I') i2c_report();
   else if (c == '?' || c == 'H') print_help();
   else say("ERR unknown command, type ?");
@@ -466,6 +498,7 @@ void App_Loop(void) {
   comms_poll(handle_command);
   button_poll();
   heading_poll();
+  ol_poll();
   battery_poll();
   cal_poll();
   int result = drive_result();
@@ -483,7 +516,7 @@ void App_Loop(void) {
     oled_draw_status();
     if (!oled_update()) { oledOn = false; say("OLED lost: check wiring, then type I"); }
   }
-  if (telemPeriodMs && HAL_GetTick() - telemLastMs >= telemPeriodMs) {
+  if (telemPeriodMs && !ol_dumping() && HAL_GetTick() - telemLastMs >= telemPeriodMs) {
     telemLastMs = HAL_GetTick();
     telemetry_send();
   }
