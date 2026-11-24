@@ -86,11 +86,11 @@ Six logged runs (2 m, 5 m, one stopped by hand), Kp 3, Ki 2, Kvp 1, Kvi
 | Rhythm of the swing | about 40 cm of travel, 2.1-2.4 s; the speed 20 cm later is the opposite (correlation -0.6 to -0.9) |
 | Motor % in cruise | mean 18-33 %, swinging between about 8 and 55 % |
 | Lag behind the reference | mostly within 2-3 cm, up to 8.5 cm |
-| Heading | within 1-2.5 degrees in four runs; crept to +5 degrees in two 5 m runs |
+| Heading | within 1-2.5 degrees in four runs; crept to +5 degrees in two 5 m runs. **Void:** the gyro axis was wrong (found 2026-11-22), this was pitch/roll drift, and the hold steered on it (70-90 µs right in the two 5 m runs), not on the heading |
 
 Not explained yet: the swing (tight spot, or position loop and speed loop
 too close in speed: Kp 3 /s on top of a speed loop that needs about half a
-second), and the heading creep (probably play in the steering). The
+second). The "heading creep" was the wrong gyro axis (see above). The
 battery went flat during this session (7.9 V), which may have affected the
 last runs. See [roadmap.md](roadmap.md) for the tests that decide.
 
@@ -212,9 +212,21 @@ update does not matter. Positive yaw = turned left.
   ends the servo goes back to centre.
 - `kh 0` turns it off. `sc <us>` trims the centre pulse. If the gyro stops
   answering, the hold stops and the servo centres; `I` tries again.
-- **Not run on the car yet.** Unknown until then: the mounting of the
-  module (`IMU_YAW_AXIS`, `IMU_YAW_SIGN`) and whether 15 us/deg is a good
-  gain. `drive_sim` does not model steering.
+- **Until 2026-11-22 it read the wrong gyro axis** (Z; the module stands
+  on its side, X is up). The heading never saw a turn, and the hold
+  steered on pitch/roll drift instead: the 2026-11-12 runs that "stayed
+  within 1-2.5 degrees" and the "heading creep" were the wrong axis. Fixed (`IMU_YAW_AXIS 0`), and
+  the sign is checked (left turn = +). **The hold has not run on the car
+  with the right axis yet.** The direction follows from the checks (+yaw
+  = left, larger µs = right, both seen on 2026-11-22), but 15 µs/deg may
+  be too much: at 350 µs the car turns with a radius of about 65 cm.
+  First test: `d2` at the normal 18 cm/s, watch it. `drive_sim` does not
+  model steering.
+- The steering has play: after a right turn the centre pulse leaves the
+  wheels a little right (about the effect of +50 µs). A P-only hold
+  leaves an error to hold against that; an integral term would remove it.
+- A failed gyro reading no longer loses time (see
+  [hardware.md](hardware.md#i2c1)).
 
 ## Checking a change: `tools/drive_sim`
 
@@ -249,7 +261,8 @@ been run on the real car. See [roadmap.md](roadmap.md).
 - A faster control step (20–50 Hz) would make the stop finer. The course
   material asks for 100 ms, and TIM3 is shared with the sonar timing.
 - Scale the motor map with the battery voltage (the map was tuned at one
-  voltage; a 3S LiPo goes from 12.6 V to about 10 V). Needs a trustworthy
-  battery reading first.
+  voltage; a 3S LiPo goes from 12.6 V to about 10 V). The speed loop
+  corrects it anyway in closed loop. The open-loop plan has it (`ov`, see
+  [openloop.md](openloop.md)).
 - A separate speed loop inside the position loop (cascade). The
   feed-forward plus position PID is simpler and matches Activity 2.6.

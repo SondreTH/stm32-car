@@ -31,6 +31,12 @@ void lb_hex(uint32_t v);
 void lb_send(bool dropIfBusy);                  /* true = drop if queue full (telemetry) */
 void say(const char *s);
 
+/* One port only (0 = USB, 1 = Bluetooth): for long outputs like the
+ * open-loop recording, which would take a minute at Bluetooth speed */
+extern int comms_from;                          /* port of the command line being handled */
+void     lb_send_to(int port);                  /* waits if the queue is full */
+uint16_t comms_tx_free(int port);               /* bytes free in that port's send queue */
+
 #ifdef __cplusplus
 }
 #endif

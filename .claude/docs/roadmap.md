@@ -1,50 +1,56 @@
 # Open problems and what is next
 
-Last updated 2026-11-12.
+Last updated 2026-11-22.
 
-## State after the car sessions of 2026-11-12
+## State after the open-loop session of 2026-11-22
 
-Seen working on the car (logs `run_20261112_1632*` and `_1634*`):
+Done and seen working on the car (details in [openloop.md](openloop.md)):
 
-- Speed loop + 100 Hz PWM + heading hold: 2 m and 5 m runs ended within
-  1 cm of the target, started within 0.2-0.4 s, average cruise speed
-  17.2-18.0 cm/s for a plan of 18.
-- Heading hold: the sign is right (`IMU_YAW_SIGN 1`, axis Z). Four runs
-  stayed within 1-2.5 degrees.
-- Battery reading at 11.6 V, commands, telemetry, encoder direction.
+- **Open-loop route** (`car_openloop.c`): a square of four ~1 m sides and
+  four right turns drove back to within 30-40 cm of the start, heading
+  within 1 degree, from a plan of timed steps with no feedback.
+- **Gyro axis fixed.** The MPU-6050 stands on its side; the code read Z,
+  which never saw a turn. Now X (`IMU_YAW_AXIS 0`). Checked by hand (90
+  deg left = +90) and in every open-loop run (four turns add up to the
+  -359 deg the eye saw).
+- **Bluetooth works both ways.** Output to the module now goes in small
+  pieces (it lost the end of every line before). The laptop console
+  connects by address on Linux. Runs can be started and read without the
+  USB cable, which matters because unplugging the USB resets the STM32.
+- Gyro readings: none failed during the runs, also with the motor on.
 
-Open problems seen in the same logs:
+Learned about the car (all in [hardware.md](hardware.md) and
+[openloop.md](openloop.md)):
 
-- **Speed swings.** In cruise the speed swings between about 10 and 27
-  cm/s with a steady rhythm of about 40 cm of travel (2.1-2.4 s). Not known
-  yet whether that is the tight spot in the drivetrain or the two loops
-  hunting. Tests that tell: the `cal` drive (speed loop alone), and a run
-  at another speed (`vn 40`): a rhythm that stays 40 cm is mechanical, one
-  that stays 2.3 s is the controller (then lower `kp` / `ki`).
-- **Heading creep.** In two of the 5 m runs the heading error grew slowly
-  to +5 degrees while the servo went 70-90 us to the right. A P-only hold
-  cannot remove an error that needs a constant steering offset. It looks
-  like play in the steering (the servo moves, the wheels follow late); the
-  `cal` drive measures that. An integral term in the heading hold is the
-  likely fix.
-- **Battery.** The 3S LiPo was run down to 7.9 V (multimeter) during the
-  session, far below the 9.0 V limit. The OLED showed 6.7 V at the time, so
-  the reading is off at low voltage or the pack sagged under load; see
-  [hardware.md](hardware.md). A low-battery warning now exists.
-- The tight spot in the drivetrain is still there (mechanical).
-- `sc 1080` drove straight by eye (default now). The logs cannot confirm
-  it: the heading hold was on in every logged run, and it hides the trim.
+- The L298N brake barely brakes. Stopping takes 1-2 s and 40-80 cm.
+- On a full pack the car is much faster than the 2026-11-12 numbers
+  (taken on a nearly empty pack): 45 % up to 140 cm/s.
+- The steering has play: about +50 µs after a right turn.
+- +350 µs gives a turn radius of about 65 cm.
+- From standstill with the wheels at full lock the car does not start at
+  35 %; a hard kick spins the rear wheel.
+- The sonar stop (30 cm) is too late above about 60 cm/s: the car rolled
+  into a hand at ~120 cm/s.
 
-Written after those sessions, compiled only, **not yet on the car**: the
-`cal` steering calibration drive, the low-battery warning, `batt_v` in the
-telemetry.
+**What this means for the 2026-11-12 results:** the heading hold never saw the
+heading (wrong axis). It steered on pitch/roll drift instead, so "four
+runs stayed within 1-2.5 degrees" and the "heading creep" (servo 70-90 µs
+right) are not about the heading at all. The straight runs were straight because
+`sc 1080` was close. The speed-loop and distance results still hold.
 
-Next session on the car (battery charged):
+Not run on the car yet:
 
-1. `G` with a multimeter on the battery and on PA4 at the same moment.
-2. `T 10`, `cal`: needs a clear strip 5 m long and 2 m wide. Prints a turn
-   radius for nine servo pulses. `s` stops it.
-3. `vn 40`, `d5`: a faster run. 150 m at 18 cm/s would take 14 minutes.
+- The heading hold with the right axis (`d2` first, at 18 cm/s; see
+  [control.md](control.md#heading-hold-car_headingc)).
+- `cal` (it needs the gyro, which only works since 2026-11-22).
+- The default plan in `car_openloop.c` (the working square with the last
+  step at 0.2 s, interpolated between 0 s and 0.45 s). Battery compensation
+  (`ov`). The open-loop scenarios for the video (list at the end of
+  [openloop.md](openloop.md)).
+- From the 2026-11-12 list: speed swings in cruise, battery reading at low
+  voltage.
+
+The checklist for the next sessions is in [todo.md](todo.md).
 
 ## Plan towards the circuit
 
@@ -93,8 +99,8 @@ Things that may need changing after that:
 - `POS_TOL_CM` 1 cm may be tighter than the smallest step the car can make
   from standstill. If runs end with "stopped after one swing back" a lot,
   raise it to 1.5–2.
-- Braking (`motor_brake`) is assumed to stop the car quickly. If the car
-  skids or the gearbox complains, replace the brake in settle with coasting.
+- Braking (`motor_brake`) was assumed to stop the car quickly. It does
+  not (2026-11-22, [hardware.md](hardware.md)): it is close to coasting.
 
 ## Battery reading
 
@@ -113,13 +119,15 @@ The challenge: about 150 m circuit, three 10 s waypoint stops, obstacles,
 finish at the start. What the firmware lacks, roughly in order:
 
 1. **MPU-6050 gyro**: done in `car_heading.c` on 2026-11-12 (heading and
-   heading hold), untested. Was: read Z rate, calibrate bias at standstill, integrate
+   heading hold); the axis was wrong until 2026-11-22, the heading is right
+   now, the hold is untested. Was: read Z rate, calibrate bias at standstill, integrate
    to a heading. The sensor is wired on I2C1 and answers at 0x68. Note the
    OLED update blocks the bus for ~25 ms; reads must fit around it (or the
    OLED moves to a slower, split update).
 2. **Odometry**: x/y from encoder distance and heading.
-3. **Steering as an angle**: the servo only has left / centre / right now.
-   Needs µs per degree and the wheelbase.
+3. **Steering as an angle**: the heading hold and the open-loop plan set any
+   pulse, but there is no pulse -> angle table. One point is known: +350 µs
+   = radius ~65 cm. `cal` measures nine.
 4. **Speed control while steering**: runs are straight lines with a fixed
    profile. Route following needs a speed setpoint that can change (a
    speed loop, or chained position profiles).
@@ -139,7 +147,10 @@ team did with the activities.
 - Manual drive commands (`f`, `b`, `P`, `v`) have no timeout. If Bluetooth
   drops, the car keeps driving. A watchdog ("stop if no command for N s")
   existed in the old firmware (`W`).
-- Settings are lost at reset. Saving them to flash would spare retyping.
+- Settings are lost at reset, and unplugging the USB resets the board.
+  Saving them (and the open-loop plan) to flash would spare retyping.
+- The sonar stop distance is fixed at 30 cm; at higher speeds it should
+  grow with the speed (the brake is weak).
 - `tools/autopilot/` does not build against the current firmware.
 - The wiring guide still says "firmware v1.3" and lists the battery
   divider as 10k / 3.3k.

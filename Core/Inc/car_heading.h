@@ -16,6 +16,9 @@ extern volatile float yawRateDps;    /* turn rate, degrees per second, bias remo
 extern volatile float headingErrDeg; /* while steering: heading minus target heading      */
 extern volatile float headingTargetDeg; /* the heading the steering holds                 */
 extern float gyroBiasDps;            /* what the gyro reads while standing still          */
+#include <stdint.h>
+extern uint32_t gyroReadsOk, gyroReadsFailed;   /* I2C readings since start-up */
+extern float gyroAxisDeg[3];                    /* angle around X, Y, Z since "Y" (IMU_YAW_AXIS check) */
 
 bool heading_init(void);   /* wake the sensor and measure the bias: the car must stand still (0.6 s) */
 void heading_poll(void);   /* call from the main loop: reads the gyro, steers during a run */
