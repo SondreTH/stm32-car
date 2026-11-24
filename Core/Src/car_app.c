@@ -17,6 +17,8 @@
  *   rl / rc / rd   list / clear the lap / load the 2 m test square
  *   rs <m>  rt <deg>  rw <s>   add a straight / turn (+ left) / wait
  *   tv <cm/s> speed in route turns         khi  heading hold I term
+ *   bt 0 / 1  block / allow commands from Bluetooth (only from USB)
+ *   gy        gyro check: all accel and gyro axes
  *   v <cm/s>  hold a speed (speed loop)    s   stop (coast)
  *   f / b     forward / back at 60 %       1..6  50..100 %, same direction
  *   l c r     steer left / centre / right
@@ -73,6 +75,7 @@ static void print_help(void) {
   say("rl  list the lap   rc  clear it   rd  load the 2 m test square (needs 3 x 3 m)");
   say("rs <m>  add a straight   rt <deg>  add a turn, + = left   rw <s>  add a wait");
   say("tv <cm/s> speed in route turns   khi <us per deg s>  heading hold I term, 0 = off");
+  say("bt 0 / bt 1  block / allow Bluetooth commands (from USB only)   gy  gyro check, all axes");
   lb_clear(); lb_str("B1 / start button: "); lb_float(BUTTON_RUN_M, 2); lb_str(" m run after ");
   lb_float(BUTTON_DELAY_MS / 1000.0f, 1); lb_str(" s"); lb_send(false);
 }
@@ -454,6 +457,22 @@ static void handle_command(char *line) {
     if (a2 < 3.0f || a2 > DRIVE_MAX_CMS) { say("ERR tv <cm/s>, speed in route turns"); return; }
     TURN_SPEED_CMS = a2;
     print_settings();
+    return;
+  }
+  if (c == 'B' && c2 == 't') {   /* bt 0 / bt 1: Bluetooth lock */
+    if (!comms_line_from_usb()) { say("ERR bt can only be changed from USB"); return; }
+    comms_bt_lock(a2 < 0.5f);
+    say(comms_bt_locked() ? "OK Bluetooth commands blocked (bt 1 allows them)" : "OK Bluetooth commands allowed");
+    return;
+  }
+  if (c == 'G' && c2 == 'y') {   /* gy: which way the gyro module lies */
+    float acc[3], gyr[3];
+    if (!heading_dump(acc, gyr)) { say("ERR gyro does not answer: check wiring, then type I"); return; }
+    lb_clear(); lb_str("accel g  X "); lb_float(acc[0], 2); lb_str("  Y "); lb_float(acc[1], 2);
+    lb_str("  Z "); lb_float(acc[2], 2); lb_str("   gyro deg/s  X "); lb_float(gyr[0], 1);
+    lb_str("  Y "); lb_float(gyr[1], 1); lb_str("  Z "); lb_float(gyr[2], 1);
+    lb_str("   (yaw axis now: "); lb_str(IMU_YAW_AXIS == 0 ? "X" : IMU_YAW_AXIS == 1 ? "Y" : "Z"); lb_str(")");
+    lb_send(false);
     return;
   }
   if (c == 'P' && c2 == 'f') {   /* motor PWM frequency, see motor_pwm_hz() */

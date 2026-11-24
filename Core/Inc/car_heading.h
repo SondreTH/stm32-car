@@ -20,6 +20,8 @@ extern float gyroBiasDps;            /* what the gyro reads while standing still
 bool heading_init(void);   /* wake the sensor and measure the bias: the car must stand still (0.6 s) */
 void heading_poll(void);   /* call from the main loop: reads the gyro, steers during a run */
 
+bool heading_dump(float acc[3], float gyr[3]);   /* "gy": raw accel (g) and gyro (deg/s), X Y Z */
+
 /* for a route (car_route.c) */
 void heading_target(float deg);   /* steer to this heading; runs no longer reset it      */
 void heading_turn(bool on);       /* steer to the target also outside a distance run     */

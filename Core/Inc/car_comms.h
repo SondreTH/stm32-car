@@ -15,6 +15,12 @@ void comms_init(void);
 void comms_pump(void);                          /* call every loop: starts transmissions */
 void comms_poll(void (*onLine)(char *line));    /* call every loop: complete input lines */
 
+/* Bluetooth lock: when locked, lines from Bluetooth are ignored (and
+ * reported). Only a command from USB should change it. */
+bool comms_line_from_usb(void);   /* the line being handled came from the USB port */
+void comms_bt_lock(bool locked);
+bool comms_bt_locked(void);
+
 /* Build a line, then send it to both ports */
 void lb_clear(void);
 void lb_str(const char *s);

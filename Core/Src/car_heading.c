@@ -82,6 +82,20 @@ static bool mpu_read_rate(float *dps) {
   return true;
 }
 
+/* Diagnostic ("gy"): all three accelerometer axes in g and all three gyro
+ * axes in deg/s, bias NOT removed. Standing still, the axis that points
+ * up reads about +1 g (or -1 g upside down): that is the yaw axis. */
+bool heading_dump(float acc[3], float gyr[3]) {
+  uint8_t b[14];   /* 0x3B..0x48: accel X Y Z, temperature, gyro X Y Z */
+  if (HAL_I2C_Mem_Read(&hi2c1, MPU_ADDR, 0x3B, I2C_MEMADD_SIZE_8BIT, b, 14, 5) != HAL_OK)
+    return false;
+  for (int i = 0; i < 3; i++) {
+    acc[i] = (float)(int16_t)((b[2 * i] << 8) | b[2 * i + 1]) / 16384.0f;          /* +-2 g range */
+    gyr[i] = (float)(int16_t)((b[8 + 2 * i] << 8) | b[8 + 2 * i + 1]) / MPU_LSB_PER_DPS;
+  }
+  return true;
+}
+
 bool heading_init(void) {
   imuOk = false;
   failCount = 0;

@@ -26,6 +26,8 @@ typedef struct {
 } Port;
 
 static Port ports[2];
+static bool btLocked = false;   /* "bt 0": lines from Bluetooth are ignored */
+static int  linePort = 0;       /* port of the line being handled: 0 = USB, 1 = Bluetooth */
 
 static uint16_t tx_used(Port *p)  { return (uint16_t)(p->txHead - p->txTail) & (TXQ - 1); }
 static uint16_t tx_space(Port *p) { return (uint16_t)(TXQ - 1 - tx_used(p)); }
@@ -95,11 +97,24 @@ void comms_poll(void (*onLine)(char *line)) {
       char ch = (char)p->rx[p->rxTail];
       p->rxTail = (uint16_t)((p->rxTail + 1) & (RXQ - 1));
       if (ch == '\n' || ch == '\r') {
-        if (p->lineLen) { p->line[p->lineLen] = 0; p->lineLen = 0; onLine(p->line); }
+        if (p->lineLen) {
+          p->line[p->lineLen] = 0;
+          p->lineLen = 0;
+          if (i == 1 && btLocked) {   /* tell both ports, so the USB user sees who tried */
+            lb_clear(); lb_str("Bluetooth is locked (bt 1 on USB to allow), ignored: "); lb_str(p->line); lb_send(false);
+          } else {
+            linePort = i;
+            onLine(p->line);
+          }
+        }
       } else if (p->lineLen < sizeof(p->line) - 1) p->line[p->lineLen++] = ch;
     }
   }
 }
+
+bool comms_line_from_usb(void) { return linePort == 0; }
+void comms_bt_lock(bool locked) { btLocked = locked; }
+bool comms_bt_locked(void) { return btLocked; }
 
 /* ---- line builder ---- */
 static char    lbBuf[180];
