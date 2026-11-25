@@ -43,3 +43,11 @@ float STEER_KHI       = 10.0f;
 /* Route turns (car_route.c) drive at this speed. Slower than a straight:
  * the car turns at full lock, and the speed loop holds it in the curve. */
 float TURN_SPEED_CMS  = 15.0f;
+
+/* Play in the steering (2026-11-22 and 2026-11-25): after a right turn the
+ * centre pulse leaves the wheels a little right, after a left turn a little
+ * left, so the next straight ends off to that side. The gyro steering adds
+ * this many us in the direction the pulse moves, so the servo crosses the
+ * gap at once. In open loop -50 us after a right turn fixed it. "sb" sets
+ * it live, 0 = off. Too much: the car weaves on a straight. */
+float STEER_PLAY_US   = 30.0f;

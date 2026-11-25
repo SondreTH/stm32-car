@@ -137,6 +137,24 @@ bool heading_init(void) {
   return true;
 }
 
+/* Play in the steering (STEER_PLAY_US): the wheels only start to move once
+ * the servo has turned through the gap. So add the play in the direction the
+ * pulse last moved: coming back from a right turn (pulse going down) the
+ * servo goes a little past the centre to the left, and the wheels end up
+ * straight. Only for the gyro steering; the open-loop plan has its own -50 us. */
+static float playLastUs = 0.0f;
+static float playDir = 0.0f;   /* +1 = the pulse last moved up (right), -1 = down (left) */
+static void steer_out(float us) {
+  if (playLastUs == 0.0f) playLastUs = us;
+  if (us > playLastUs + 2.0f) playDir = 1.0f;        /* 2 us: ignore tiny wobbles */
+  else if (us < playLastUs - 2.0f) playDir = -1.0f;
+  if (fabsf(us - playLastUs) > 2.0f) playLastUs = us;
+  float out = us + playDir * STEER_PLAY_US;
+  if (out < SERVO_PULSE_MIN) out = SERVO_PULSE_MIN;
+  if (out > SERVO_PULSE_MAX) out = SERVO_PULSE_MAX;
+  servo_set_us((uint32_t)out);
+}
+
 void heading_poll(void) {
   bool running = (state != DRIVE_OFF);
   dtSteer = 0.0f;   /* set below only when there is a new gyro reading */
@@ -201,10 +219,10 @@ void heading_poll(void) {
       if (turning && headingErrDeg >  HEADING_TURN_TOL_DEG) us = SERVO_PULSE_MAX;   /* target is to the right */
       if (us < SERVO_PULSE_MIN) us = SERVO_PULSE_MIN;
       if (us > SERVO_PULSE_MAX) us = SERVO_PULSE_MAX;
-      servo_set_us((uint32_t)us);
+      steer_out(us);
     }
   }
-  if (!steering && wasSteering) servo_set_us((uint32_t)SERVO_CENTER_US);   /* done: wheels straight */
+  if (!steering && wasSteering) steer_out(SERVO_CENTER_US);   /* done: wheels straight (past the play) */
   wasRunning = running;
   wasSteering = steering;
 }

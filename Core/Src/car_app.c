@@ -84,6 +84,7 @@ static void print_help(void) {
   say("rl  list the lap   rc  clear it   rd  load the 2 m test square (needs 3 x 3 m)");
   say("rs <m>  add a straight   rt <deg>  add a turn, + = left   rw <s>  add a wait");
   say("tv <cm/s> speed in route turns   khi <us per deg s>  heading hold I term, 0 = off");
+  say("sb <us>   play in the steering: gyro steering adds this in the direction it moves, 0 = off");
   say("bt 0 / bt 1  block / allow Bluetooth commands (from USB only)   gy  gyro check, all axes");
   say("vs [cm/s]  speed steps 20, 30 .. up to 60 (or the number), 3 s each, gyro keeps it straight");
   say("ll  list recorded tests (d, go, vs)   ld [n]  download the last / test n, ld 0 = all   lc  clear");
@@ -105,6 +106,7 @@ static void print_settings(void) {
   lb_send(false);
   lb_clear(); lb_str("steer sc="); lb_float(SERVO_CENTER_US, 0); lb_str(" kh="); lb_float(STEER_KH, 1);
   lb_str(" khi="); lb_float(STEER_KHI, 1); lb_str(" tv="); lb_float(TURN_SPEED_CMS, 1);
+  lb_str(" sb="); lb_float(STEER_PLAY_US, 0);
   if (imuOk) { lb_str(" yaw="); lb_float(yawDeg, 1); lb_str("deg rate="); lb_float(yawRateDps, 1);
                lb_str("dps bias="); lb_float(gyroBiasDps, 2);
                lb_str(" reads ok="); lb_uint(gyroReadsOk); lb_str(" failed="); lb_uint(gyroReadsFailed);
@@ -448,6 +450,12 @@ static void handle_command(char *line) {
   if (c == 'S' && (c2 == 'p' || c2 == 'i')) {   /* speed loop gains */
     if (a2 < 0) { say("ERR gains are positive"); return; }
     if (c2 == 'p') Kvp = a2; else Kvi = a2;
+    print_settings();
+    return;
+  }
+  if (c == 'S' && c2 == 'b') {   /* sb: play in the steering, see car_config.c */
+    if (a2 < 0.0f || a2 > 150.0f) { say("ERR sb <us>, 0..150, 0 = off"); return; }
+    STEER_PLAY_US = a2;
     print_settings();
     return;
   }

@@ -132,6 +132,7 @@ and `D 1.2` mean the same thing.
 | `pf 100` | Motor PWM frequency in Hz (100 is the default; 5000 barely moves the car) |
 | `kh 15` | Heading hold: µs of steering per degree off course, `kh 0` = off, negative flips it |
 | `sc 1080` | Servo pulse that drives straight |
+| `sb 30` | Play in the steering: the gyro steering adds this many µs in the direction it moves, so the wheels come back straight after a turn. Car ends a bit to the turn side: raise it. Weaves: lower it. `sb 0` = off |
 | `Y` | Zero the heading |
 | `cal` | Steering calibration: the car drives about 30 s in gentle to tight curves and prints the turn radius for nine servo pulses. Needs a clear strip 5 m long and 2 m wide. `s` stops it |
 | `f` / `b` | Forward / back at 60 % |

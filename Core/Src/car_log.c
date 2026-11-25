@@ -45,7 +45,7 @@ typedef struct {
   uint32_t startMs, endMs;
   uint16_t first, n;          /* samples                       */
   uint16_t noteFirst, noteLen;
-  float    batt0, kh, khi, sc;
+  float    batt0, kh, khi, sc, sb;
 } LogTest;
 
 static LogSample smp[LOG_MAX_SAMPLES];
@@ -98,7 +98,7 @@ void log_begin(const char *what) {
   t->noteFirst = nNotes;
   battF = battery_volts();
   t->batt0 = battF;
-  t->kh = STEER_KH; t->khi = STEER_KHI; t->sc = SERVO_CENTER_US;
+  t->kh = STEER_KH; t->khi = STEER_KHI; t->sc = SERVO_CENTER_US; t->sb = STEER_PLAY_US;
   cnt0 = encoder_count();
   yaw0 = yawDeg;
   lastStep = driveSteps;
@@ -155,7 +155,7 @@ static void dump_step(void) {
       lb_str("# TEST "); lb_int(dumpTest + 1); lb_str(": "); lb_str(t->what);
       lb_str(", "); lb_float((float)(t->endMs - t->startMs) / 1000.0f, 1); lb_str(" s, battery ");
       lb_float(t->batt0, 2); lb_str(" V, kh "); lb_float(t->kh, 1); lb_str(", khi "); lb_float(t->khi, 1);
-      lb_str(", sc "); lb_float(t->sc, 0);
+      lb_str(", sc "); lb_float(t->sc, 0); lb_str(", sb "); lb_float(t->sb, 0);
       dumpPart = 2; dumpIdx = 0;
     } else if (dumpPart == 2) {
       if (dumpIdx >= t->noteLen) { dumpPart = 3; dumpIdx = 0; continue; }

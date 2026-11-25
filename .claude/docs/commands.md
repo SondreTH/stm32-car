@@ -28,6 +28,7 @@ the run time; `M 1035` is counts per metre, `ms 60` is the start power;
 | `pf <Hz>` | motor PWM frequency, 50..5000, default 100 | TIM1 prescaler |
 | `kh <us/deg>` | heading hold gain, 0 = off, negative flips the direction | `STEER_KH` |
 | `sc <us>` | servo pulse that drives straight | `SERVO_CENTER_US` |
+| `sb <us>` | play in the steering: the gyro steering adds this in the direction the pulse moves (`steer_out` in `car_heading.c`), 0 = off | `STEER_PLAY_US` |
 | `Y` | zero the heading (and the three axis angles in `G`) | `yawDeg` |
 | `cal` | steering calibration drive: holds the nominal speed and nine servo pulses for 3 s each, prints the turn radius of each. Needs the gyro and a clear strip 5 m x 2 m. `s` stops it | – |
 | `ol` | show the open-loop plan | `olPlan[]` |

@@ -112,6 +112,7 @@ extern float BATT_DIVIDER;        /* vb  battery volts per volt on PA4          
 extern float SERVO_CENTER_US;     /* sc  servo pulse that drives straight                  */
 extern float STEER_KH;            /* kh  heading hold: us of steering per degree off, 0 = off */
 extern float STEER_KHI;           /* khi heading hold I term: us per degree x second, 0 = off */
+extern float STEER_PLAY_US;       /* sb  play in the steering, us added in the direction the pulse moves */
 extern float TURN_SPEED_CMS;      /* tv  speed in a route turn (speed loop, no position loop) */
 
 #ifdef __cplusplus
