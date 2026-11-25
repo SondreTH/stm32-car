@@ -21,6 +21,9 @@ extern float gyroAxisDeg[3];                    /* angle around X, Y, Z since "Y
 
 bool heading_init(void);   /* wake the sensor and measure the bias: the car must stand still (0.6 s) */
 void heading_poll(void);   /* call from the main loop: reads the gyro, steers during a run */
+void heading_set_target(float deg);   /* hold this yaw during distance runs (instead of yawAtStart) */
+void heading_clear_target(void);      /* back to locking yawAtStart at each run start */
+void heading_set_hold(bool on);       /* enable/disable steering correction */
 
 #ifdef __cplusplus
 }

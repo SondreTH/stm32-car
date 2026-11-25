@@ -41,6 +41,7 @@
 #include "car_oled.h"
 #include "car_heading.h"
 #include "car_openloop.h"
+#include "car_route.h"
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
@@ -321,9 +322,11 @@ static void cal_poll(void) {
  * pressed while the plan is armed or running. */
 static void button_poll(void) {
   bool b = start_pressed();
-  if (b && !btnWas && ol_busy()) ol_stop("stopped by the button");
+  if (b && !btnWas && route_busy()) route_stop("stopped by the button");
+  else if (b && !btnWas && ol_busy()) ol_stop("stopped by the button");
+  else if (b && !btnWas && routeButton && state == 0 && !armed) { cal_stop(NULL); ol_cancel(); route_arm(); }
   else if (b && !btnWas && olButton && state == 0 && !armed) { cal_stop(NULL); ol_arm(); }
-  else if (b && !btnWas && !olButton && state == 0 && !armed) {
+  else if (b && !btnWas && !olButton && !routeButton && state == 0 && !armed) {
     armed = true;
     armedMs = HAL_GetTick();
     lb_clear(); lb_str("button: "); lb_float(BUTTON_RUN_M, 2); lb_str(" m run in ");
@@ -338,7 +341,7 @@ static void button_poll(void) {
 }
 
 /* any manual command ends a run, a calibration drive and a pending button start */
-static void manual(void) { armed = false; cal_stop(NULL); ol_cancel(); drive_cancel(); }
+static void manual(void) { armed = false; cal_stop(NULL); ol_cancel(); route_cancel(); drive_cancel(); }
 
 /* the number after the letters of a command: "tol 1.5" -> 1.5, 0 if there is none */
 static float number_after(const char *s) {
@@ -440,12 +443,14 @@ static void handle_command(char *line) {
   }
 
   if (c == 'O') { ol_command(line); return; }   /* open loop: ol, og, od, os, ob */
+  if (c == 'R' && isalpha((unsigned char)line[1])) { route_command(line); return; }   /* route: rp, rs, rg, rb, rtu, rtv, rtl */
 
   if (c == 'D') {
     if (fabsf(a1) >= 0.01f) {
       armed = false;
       cal_stop(NULL);
       ol_cancel();
+      route_cancel();
       if (drive_start(a1)) {
         lb_clear(); lb_str("OK run "); lb_float(a1, 2); lb_str(" m in "); lb_float(T, 1); lb_str(" s at ");
         lb_float(Sn, 1); lb_str(" cm/s"); lb_send(false);
@@ -458,6 +463,7 @@ static void handle_command(char *line) {
   else if (c == 'V') { manual(); Set_Speed_cm_s(a1); say("OK speed"); }
   else if (c == 'F') { manual(); motor_set(MANUAL_PCT); say("OK forward"); }
   else if (c == 'B') { manual(); motor_set(-MANUAL_PCT); say("OK back"); }
+  else if (c == 'S' && route_busy()) { route_stop("stopped by s"); say("OK stop"); }
   else if (c == 'S' && ol_busy()) { ol_stop("stopped by s"); say("OK stop"); }   /* brakes, still reports */
   else if (c == 'S') { manual(); drive_stop(); say("OK stop"); }
   else if (c >= '1' && c <= '6') {   /* only changes the speed while moving */
@@ -474,7 +480,7 @@ static void handle_command(char *line) {
   else if (c == 'R') { servo_set_us(SERVO_PULSE_MAX);    say("OK right"); }
   else if (c == 'X') { manual(); motor_brake(); say("OK stop + brake"); }
   else if (c == 'P') { manual(); motor_set(a1); say("OK open-loop"); }
-  else if (c == 'Z') { if (state || ol_busy()) say("ERR not during a run"); else { encoder_zero(); say("OK zeroed"); } }
+  else if (c == 'Z') { if (state || ol_busy() || route_busy()) say("ERR not during a run"); else { encoder_zero(); say("OK zeroed"); } }
   else if (c == 'M') { if (a1 > 0) COUNTS_PER_METER = a1; print_settings(); }
   else if (c == 'T') { telemPeriodMs = (a1 > 0) ? (uint32_t)(1000.0f / a1) : 0; if (telemPeriodMs) telemetry_header(); }
   else if (c == 'G') print_settings();
@@ -506,6 +512,7 @@ void App_Loop(void) {
     report_run(result);
     cal_stop(NULL);   /* the speed hold gave up (wheel blocked): end the calibration too */
   }
+  route_poll(result);
   /* the control step runs in the TIM3 interrupt; redraw the OLED (~25 ms)
    * after every second step */
   static uint32_t lastStep = 0;

@@ -57,6 +57,22 @@ static uint32_t lastMs = 0, lastTryMs = 0;
 static int   failCount = 0;
 static bool  wasRunning = false;
 static float yawAtStart = 0.0f;
+static bool  useTargetYaw = false;
+static float targetYawDeg = 0.0f;
+static bool  holdEnabled = true;
+
+void heading_set_target(float deg) {
+  targetYawDeg = deg;
+  useTargetYaw = true;
+}
+
+void heading_clear_target(void) {
+  useTargetYaw = false;
+}
+
+void heading_set_hold(bool on) {
+  holdEnabled = on;
+}
 
 static bool mpu_write(uint8_t reg, uint8_t value) {
   return HAL_I2C_Mem_Write(&hi2c1, MPU_ADDR, reg, I2C_MEMADD_SIZE_8BIT, &value, 1, 5) == HAL_OK;
@@ -138,16 +154,17 @@ void heading_poll(void) {
 
   /* heading hold during a distance run */
   if (running && !wasRunning) yawAtStart = yawDeg;
-  if (running && imuOk && STEER_KH != 0.0f) {
-    headingErrDeg = yawDeg - yawAtStart;                /* + = the car has turned left */
+  float goalYaw = useTargetYaw ? targetYawDeg : yawAtStart;
+  if (running && holdEnabled && imuOk && STEER_KH != 0.0f) {
+    headingErrDeg = yawDeg - goalYaw;                   /* + = the car has turned left */
     float dir = (target_dist_cm < 0.0f) ? -1.0f : 1.0f; /* reverse: steering acts the other way */
     float us = SERVO_CENTER_US + dir * STEER_KH * headingErrDeg;   /* larger us = steer right */
     if (us < SERVO_PULSE_MIN) us = SERVO_PULSE_MIN;
     if (us > SERVO_PULSE_MAX) us = SERVO_PULSE_MAX;
     servo_set_us((uint32_t)us);
   } else if (running) {
-    headingErrDeg = yawDeg - yawAtStart;
+    headingErrDeg = yawDeg - goalYaw;
   }
-  if (!running && wasRunning) servo_set_us((uint32_t)SERVO_CENTER_US);   /* run over: wheels straight */
+  if (!running && wasRunning && holdEnabled) servo_set_us((uint32_t)SERVO_CENTER_US);   /* run over: wheels straight */
   wasRunning = running;
 }
