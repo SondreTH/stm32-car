@@ -49,6 +49,7 @@
  * ===================================================================== */
 #include "main.h"
 #include "car_openloop.h"
+#include "car_route.h"
 #include "car_config.h"
 #include "car_hw.h"
 #include "car_comms.h"
@@ -338,6 +339,7 @@ void ol_arm(void) {
   if (phase != OL_IDLE) return;
   if (ol_steps() == 0) { say("ERR the plan is empty: ol 1 <motor %> <steer us> <s>"); return; }
   if (state != DRIVE_OFF) { say("ERR a distance run is on: s first"); return; }
+  if (route_running()) { say("ERR the route runs: s first"); return; }
   phase = OL_ARMED;
   armMs = HAL_GetTick();
   lb_clear(); lb_str("OK open loop starts in "); lb_float(OL_DELAY_MS / 1000.0f, 1);

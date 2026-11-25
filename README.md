@@ -132,6 +132,7 @@ and `D 1.2` mean the same thing.
 | `pf 100` | Motor PWM frequency in Hz (100 is the default; 5000 barely moves the car) |
 | `kh 15` | Heading hold: µs of steering per degree off course, `kh 0` = off, negative flips it |
 | `sc 1080` | Servo pulse that drives straight |
+| `sb 30` | Play in the steering: the gyro steering adds this many µs in the direction it moves, so the wheels come back straight after a turn. Car ends a bit to the turn side: raise it. Weaves: lower it. `sb 0` = off |
 | `Y` | Zero the heading |
 | `cal` | Steering calibration: the car drives about 30 s in gentle to tight curves and prints the turn radius for nine servo pulses. Needs a clear strip 5 m long and 2 m wide. `s` stops it |
 | `f` / `b` | Forward / back at 60 % |
@@ -149,6 +150,10 @@ and `D 1.2` mean the same thing.
 | `og` | Run the plan 2 s later |
 | `od` | Print the recording of the last plan (CSV; the console saves it) |
 | `os 0` / `ob 0` / `ov 11` | Plan: sonar stop off / button does a 1 m run instead / battery compensation to 11 V (`ov 0` = off) |
+| `vs` / `vs 50` | Speed steps: holds 20, 30 … 60 cm/s (or up to the number), 3 s each, gyro keeps it straight. Prints the speed reached and the motor % per step. Stops for the sonar |
+| `ll` | List the recorded tests. Every `d`, `go` and `vs` is recorded on the car (10 Hz, with its report lines), up to 20 tests or 4 minutes |
+| `ld` / `ld 3` / `ld 0` | Download the last test / test 3 / all of them as CSV (the console saves it in `tools/logs/`). Lost on a reset |
+| `lc` | Clear the recorder |
 | `G` / `?` | Settings / help |
 | `I` | Scan I2C1, restart the OLED |
 
@@ -249,17 +254,20 @@ PA4 and 3.3k from PA4 to GND, a factor of 4.03. A reading of 7.1 V means
 1.76 V on PA4, so the real factor is 11.6 / 1.76 = 6.58. That fits a 1.8k
 resistor in the place of the 3.3k (factor 6.56).
 
-`BATT_DIVIDER` is now 6.58, so the reading should be right. To be sure:
+With the new 3S pack (2026-11-25) the car showed 11.8 V at 12.04 V on the
+multimeter, so `BATT_DIVIDER` is now 6.71. The factor also absorbs the
+error of the 3.3 V ADC reference, so it does not have to match the
+resistors exactly. To check it:
 
 1. Measure PA4 (CN7-32) to GND with the multimeter. About 1.76 V at 11.6 V
    confirms the resistors are 10k / 1.8k. About 2.9 V would mean the
    resistors are as drawn and the problem is somewhere else.
-2. `G` shows the PA4 voltage and the factor: `batt=11.60V (PA4 1.76V x 6.58)`.
+2. `G` shows the PA4 voltage and the factor: `batt=12.04V (PA4 1.79V x 6.71)`.
 3. `vb 11.6` (the multimeter value) sets the factor exactly. Copy it into
    `car_config.c`.
 
-PA4 must stay below 3.3 V at a full battery (12.6 V). With 6.58 it reaches
-1.9 V, which is safe.
+PA4 must stay below 3.3 V at a full battery (12.6 V). With 6.71 it reaches
+1.88 V, which is safe.
 
 **Low battery.** The battery is a 3S LiPo: 12.6 V full, and it must not go
 below 9.0 V (3.0 V per cell), or the cells are damaged. On 2026-11-12 it

@@ -20,9 +20,11 @@ float MOTOR_PCT_PER_CMS = 0.5f;
 
 /* Battery: battery+ -> R1 -> PA4 -> R2 -> GND, divider = (R1 + R2) / R2.
  * The wiring guide says 10k / 3.3k (4.03), but with 4.03 the car showed
- * 7.1 V on an 11.6 V battery: 1.76 V on PA4, so the real divider is 6.58.
- * That fits 10k / 1.8k (6.56). Check the resistors; "vb <volts>" sets this
- * from a multimeter reading. PA4 must stay below 3.3 V at 12.6 V. */
+ * 7.1 V on an 11.6 V battery: 1.76 V on PA4, so the divider is about 6.6
+ * (10k / 1.8k = 6.56). 2026-11-25, new 3S pack: the car showed 11.8 V at
+ * 12.04 V on the multimeter, so 6.58 -> 6.71. The factor also absorbs the
+ * error of the 3.3 V ADC reference. "vb <volts>" sets this from a multimeter
+ * reading. PA4 must stay below 3.3 V at 12.6 V (1.88 V with 6.71). */
 float BATT_DIVIDER = 6.71f;
 
 /* Steering. SERVO_CENTER_US: trim it with "sc" until the car rolls straight
@@ -32,3 +34,20 @@ float BATT_DIVIDER = 6.71f;
  * If the car steers further away instead of back, see IMU_YAW_SIGN. */
 float SERVO_CENTER_US = SERVO_PULSE_CENTER;
 float STEER_KH        = 15.0f;
+
+/* I term of the heading hold, us of steering per degree x second. Against
+ * the "heading creep" of 2026-11-12 (5 deg off with the servo 70-90 us to
+ * one side). Only tried in tools/route_sim so far, not on the car. */
+float STEER_KHI       = 10.0f;
+
+/* Route turns (car_route.c) drive at this speed. Slower than a straight:
+ * the car turns at full lock, and the speed loop holds it in the curve. */
+float TURN_SPEED_CMS  = 15.0f;
+
+/* Play in the steering (2026-11-22 and 2026-11-25): after a right turn the
+ * centre pulse leaves the wheels a little right, after a left turn a little
+ * left, so the next straight ends off to that side. The gyro steering adds
+ * this many us in the direction the pulse moves, so the servo crosses the
+ * gap at once. In open loop -50 us after a right turn fixed it. "sb" sets
+ * it live, 0 = off. Too much: the car weaves on a straight. */
+float STEER_PLAY_US   = 30.0f;

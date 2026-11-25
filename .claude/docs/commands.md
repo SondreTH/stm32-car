@@ -28,6 +28,7 @@ the run time; `M 1035` is counts per metre, `ms 60` is the start power;
 | `pf <Hz>` | motor PWM frequency, 50..5000, default 100 | TIM1 prescaler |
 | `kh <us/deg>` | heading hold gain, 0 = off, negative flips the direction | `STEER_KH` |
 | `sc <us>` | servo pulse that drives straight | `SERVO_CENTER_US` |
+| `sb <us>` | play in the steering: the gyro steering adds this in the direction the pulse moves (`steer_out` in `car_heading.c`), 0 = off | `STEER_PLAY_US` |
 | `Y` | zero the heading (and the three axis angles in `G`) | `yawDeg` |
 | `cal` | steering calibration drive: holds the nominal speed and nine servo pulses for 3 s each, prints the turn radius of each. Needs the gyro and a clear strip 5 m x 2 m. `s` stops it | – |
 | `ol` | show the open-loop plan | `olPlan[]` |
@@ -39,6 +40,10 @@ the run time; `M 1035` is counts per metre, `ms 60` is the start power;
 | `ob 0/1` | the start button runs a 1 m distance run / the plan (default the plan) | `olButton` |
 | `ov <V>` | battery compensation of the plan: duty = pct x V / battery. `ov 0` = off (default) | `olVref` |
 | `v <cm/s>` | hold a speed with the speed loop (negative = reverse), `v0` stops | – |
+| `vs [cm/s]` | speed steps (`car_speedtest.c`): `VS_FIRST_CMS` 20, +10 each step up to `VS_TOP_CMS` 60 or the number, `VS_STEP_S` 3 s each, speed loop + gyro heading hold. Per step: mean speed, motor % and battery after `VS_SETTLE_S`. Sonar stop | – |
+| `ll` | list the tests in the recorder (`car_log.c`). `d`, `go` and `vs` start a recording; it ends `LOG_IDLE_MS` after the car stands | – |
+| `ld [n]` | download the last test, test n, or all (`ld 0`) to the port that asked: header, `# ` notes (the report lines), then samples. Columns: `t_ms` (since the test started), `state`, `step`, `motor_pct`, `servo_us`, `sonar_cm`, `sp_cms`, `speed_cms`, `dist_cm`, `head_err_deg`, `yaw_deg` (since the test started), `batt_v` | – |
+| `lc` | clear the recorder | – |
 | `f` / `b` | forward / back at `MANUAL_PCT` (60 %) | – |
 | `1`..`6` | 50..100 % in the current direction, only while moving | – |
 | `s` | stop: end the run, coast. During an open-loop plan: brake, and the report is still printed | – |
