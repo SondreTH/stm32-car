@@ -149,6 +149,10 @@ and `D 1.2` mean the same thing.
 | `og` | Run the plan 2 s later |
 | `od` | Print the recording of the last plan (CSV; the console saves it) |
 | `os 0` / `ob 0` / `ov 11` | Plan: sonar stop off / button does a 1 m run instead / battery compensation to 11 V (`ov 0` = off) |
+| `vs` / `vs 50` | Speed steps: holds 20, 30 … 60 cm/s (or up to the number), 3 s each, gyro keeps it straight. Prints the speed reached and the motor % per step. Stops for the sonar |
+| `ll` | List the recorded tests. Every `d`, `go` and `vs` is recorded on the car (10 Hz, with its report lines), up to 20 tests or 4 minutes |
+| `ld` / `ld 3` / `ld 0` | Download the last test / test 3 / all of them as CSV (the console saves it in `tools/logs/`). Lost on a reset |
+| `lc` | Clear the recorder |
 | `G` / `?` | Settings / help |
 | `I` | Scan I2C1, restart the OLED |
 

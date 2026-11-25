@@ -48,6 +48,8 @@
 #include "car_heading.h"
 #include "car_route.h"
 #include "car_openloop.h"
+#include "car_log.h"
+#include "car_speedtest.h"
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
@@ -83,6 +85,8 @@ static void print_help(void) {
   say("rs <m>  add a straight   rt <deg>  add a turn, + = left   rw <s>  add a wait");
   say("tv <cm/s> speed in route turns   khi <us per deg s>  heading hold I term, 0 = off");
   say("bt 0 / bt 1  block / allow Bluetooth commands (from USB only)   gy  gyro check, all axes");
+  say("vs [cm/s]  speed steps 20, 30 .. up to 60 (or the number), 3 s each, gyro keeps it straight");
+  say("ll  list recorded tests (d, go, vs)   ld [n]  download the last / test n, ld 0 = all   lc  clear");
   say("ol        open-loop plan: show it   ol <step> <motor %> <steer us, - = left> <s>");
   say("og        run the plan in 2 s   od  print its recording   os 0/1 sonar stop   ob 0/1 button");
   say("ov <V>    open loop: scale the motor % to this battery voltage, ov 0 = off");
@@ -357,7 +361,22 @@ static void button_poll(void) {
 }
 
 /* any manual command ends a run, a route, an open-loop plan, a calibration drive and a pending button start */
-static void manual(void) { armed = false; cal_stop(NULL); route_stop("ROUTE stopped"); ol_cancel(); drive_cancel(); }
+static void manual(void) { armed = false; cal_stop(NULL); route_stop("ROUTE stopped"); ol_cancel(); vs_stop("VS stopped"); drive_cancel(); }
+
+/* name of a test for the recorder: "d 2.50 m". No float printf in newlib-nano. */
+static void test_name(char *buf, const char *pre, float v, const char *unit) {
+  char *b = buf;
+  while (*pre) *b++ = *pre++;
+  if (v < 0.0f) { *b++ = '-'; v = -v; }
+  int32_t h = (int32_t)(v * 100.0f + 0.5f);   /* hundredths */
+  char tmp[12]; int n = 0;
+  int32_t w = h / 100;
+  do { tmp[n++] = (char)('0' + w % 10); w /= 10; } while (w);
+  while (n) *b++ = tmp[--n];
+  *b++ = '.'; *b++ = (char)('0' + (h / 10) % 10); *b++ = (char)('0' + h % 10);
+  while (*unit) *b++ = *unit++;
+  *b = 0;
+}
 
 /* the number after the letters of a command: "tol 1.5" -> 1.5, 0 if there is none */
 static float number_after(const char *s) {
@@ -464,6 +483,7 @@ static void handle_command(char *line) {
     int n = (a2 >= 1.0f) ? (int)a2 : 1;
     if (n > 50) { say("ERR at most 50 laps"); return; }
     if (route_start(n)) {
+      char name[28]; test_name(name, "route ", (float)n, " laps"); log_begin(name);
       lb_clear(); lb_str("OK route, "); lb_int(n); lb_str(n == 1 ? " lap" : " laps"); lb_str(". s = stop"); lb_send(false);
     }
     return;
@@ -510,13 +530,29 @@ static void handle_command(char *line) {
 
   if (c == 'O') { ol_command(line); return; }   /* open loop: ol, og, od, os, ob */
 
+  /* test recorder: ll, ld [n], lc (a plain "l" steers left) */
+  if (c == 'L' && (c2 == 'l' || c2 == 'd' || c2 == 'c')) { log_command(line); return; }
+
+  if (c == 'V' && c2 == 's') {   /* vs [top cm/s]: speed steps */
+    manual();
+    char name[28]; test_name(name, "vs up to ", a2 > 0.0f ? a2 : VS_TOP_CMS, " cm/s");
+    if (vs_start(a2)) {
+      log_begin(name);   /* first, so the recorder keeps the line below */
+      lb_clear(); lb_str("OK speed steps from "); lb_float(VS_FIRST_CMS, 0); lb_str(" cm/s, ");
+      lb_float(VS_STEP_S, 1); lb_str(" s each. s = stop"); lb_send(false);
+    }
+    return;
+  }
+
   if (c == 'D') {
     if (fabsf(a1) >= 0.01f) {
       armed = false;
       cal_stop(NULL);
       route_stop("ROUTE stopped");
       ol_cancel();
+      vs_stop("VS stopped");
       if (drive_start(a1)) {
+        char name[28]; test_name(name, "d ", a1, " m"); log_begin(name);
         lb_clear(); lb_str("OK run "); lb_float(a1, 2); lb_str(" m in "); lb_float(T, 1); lb_str(" s at ");
         lb_float(Sn, 1); lb_str(" cm/s"); lb_send(false);
       } else {
@@ -577,9 +613,12 @@ void App_Loop(void) {
   if (result != RUN_NONE) {
     report_run(result);
     cal_stop(NULL);   /* the speed hold gave up (wheel blocked): end the calibration too */
+    vs_stop("wheel blocked or no encoder counts");
     route_run_ended(result);
   }
   route_poll();
+  vs_poll();
+  log_poll(state != 0 || route_running() || vs_running() || fabsf(Speed_CM_SEC) > 1.0f);
   /* the control step runs in the TIM3 interrupt; redraw the OLED (~25 ms)
    * after every second step */
   static uint32_t lastStep = 0;
@@ -590,7 +629,7 @@ void App_Loop(void) {
     oled_draw_status();
     if (!oled_update()) { oledOn = false; say("OLED lost: check wiring, then type I"); }
   }
-  if (telemPeriodMs && !ol_dumping() && HAL_GetTick() - telemLastMs >= telemPeriodMs) {
+  if (telemPeriodMs && !ol_dumping() && !log_dumping() && HAL_GetTick() - telemLastMs >= telemPeriodMs) {
     telemLastMs = HAL_GetTick();
     telemetry_send();
   }

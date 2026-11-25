@@ -11,6 +11,7 @@
  * ===================================================================== */
 #include "main.h"
 #include "car_comms.h"
+#include "car_log.h"
 #include <string.h>
 
 extern UART_HandleTypeDef huart1;   /* Bluetooth */
@@ -169,6 +170,7 @@ void lb_float(float v, int decimals) {
 }
 
 void lb_send(bool dropIfBusy) {
+  if (!dropIfBusy) log_line(lbBuf, lbLen);   /* reports go into the test recorder too, telemetry not */
   port_send(&ports[0], lbBuf, lbLen, dropIfBusy);
   port_send(&ports[1], lbBuf, lbLen, dropIfBusy);
   lbLen = 0;
