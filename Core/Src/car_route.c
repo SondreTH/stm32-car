@@ -32,7 +32,7 @@ RouteStep routePlan[ROUTE_MAX_STEPS] = {
 };
 
 bool  routeButton      = true;
-float routeTurnUs      = 350.0f;
+float routeTurnUs      = 250.0f;
 float routeTurnSpeed   = 22.0f;
 float routeTurnLeadDeg = 4.0f;
 
