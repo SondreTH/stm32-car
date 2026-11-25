@@ -20,9 +20,11 @@ float MOTOR_PCT_PER_CMS = 0.5f;
 
 /* Battery: battery+ -> R1 -> PA4 -> R2 -> GND, divider = (R1 + R2) / R2.
  * The wiring guide says 10k / 3.3k (4.03), but with 4.03 the car showed
- * 7.1 V on an 11.6 V battery: 1.76 V on PA4, so the real divider is 6.58.
- * That fits 10k / 1.8k (6.56). Check the resistors; "vb <volts>" sets this
- * from a multimeter reading. PA4 must stay below 3.3 V at 12.6 V. */
+ * 7.1 V on an 11.6 V battery: 1.76 V on PA4, so the divider is about 6.6
+ * (10k / 1.8k = 6.56). 2026-11-25, new 3S pack: the car showed 11.8 V at
+ * 12.04 V on the multimeter, so 6.58 -> 6.71. The factor also absorbs the
+ * error of the 3.3 V ADC reference. "vb <volts>" sets this from a multimeter
+ * reading. PA4 must stay below 3.3 V at 12.6 V (1.88 V with 6.71). */
 float BATT_DIVIDER = 6.71f;
 
 /* Steering. SERVO_CENTER_US: trim it with "sc" until the car rolls straight
