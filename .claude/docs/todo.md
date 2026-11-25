@@ -1,5 +1,20 @@
 # To do: next sessions
 
+## 0. Since 2026-11-25 (read first)
+
+- [ ] Check the IN1 / IN2 plugs on the L298N before every test: a loose
+      one made the car drive off at full speed on start-up and on `X`.
+- [ ] Merge PR #3 (`integration` into `main`): test recorder (`ll`, `ld`,
+      `lc`), speed steps (`vs`), steering play fix (`sb`).
+- [ ] Steering play: compare `sb 0`, `sb 30`, `sb 50` on a route with a
+      turn and a straight (`rc`, `rt -90`, `rs 3`, `go`, then `ld`).
+- [ ] Walk the track again and fill in [track.md](track.md): lengths,
+      bearings, waypoints, obstacles, time limit.
+- [ ] Gyro drift: car standing still 5 minutes, how far does `yaw` move?
+- [ ] Buy a compass module (GY-271), see [track.md](track.md#compass-planned).
+- [ ] Firmware for the track, in this order: route in the code + the
+      button starts it, a longer recorder, go home by x/y, compass.
+
 Written 2026-11-22, after the open-loop session. Tick things off here and
 move what was learned into the other docs. Background for every item is in
 [openloop.md](openloop.md), [roadmap.md](roadmap.md) and

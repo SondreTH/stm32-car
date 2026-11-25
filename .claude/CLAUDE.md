@@ -116,7 +116,7 @@ say clearly what was only simulated.
 - The Bluetooth module loses the end of long bursts; `car_comms.c` paces
   that port (20 bytes, 20 ms). Do not remove it. Long outputs go to one
   port only (`lb_send_to`).
-- `motor_brake()` barely brakes (L298N voltage drop). Do not plan on a
+- `motor_brake()` barely brakes (L298N voltage drop; maybe also the loose IN wire found on 2026-11-25, see [docs/track.md](docs/track.md)). Do not plan on a
   short stop: from 60-90 cm/s the car rolls 40-80 cm.
 - On a full battery the car is far faster per % than the 2026-11-12
   numbers (taken on a nearly empty pack). Anything open loop must be
