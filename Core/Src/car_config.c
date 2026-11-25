@@ -21,4 +21,4 @@ float MOTOR_PCT_PER_CMS = 85.0f / 144.0f;
  * 7.1 V on an 11.6 V battery: 1.76 V on PA4, so the real divider is 6.58.
  * That fits 10k / 1.8k (6.56). Check the resistors; "vb <volts>" sets this
  * from a multimeter reading. PA4 must stay below 3.3 V at 12.6 V. */
-float BATT_DIVIDER = 6.58f;
+float BATT_DIVIDER = 6.71f;
