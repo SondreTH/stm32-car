@@ -10,18 +10,25 @@ MPU-6050, an I2C OLED and a Bluetooth serial module.
 
 **Where the firmware is now:** straight distance runs with a trapezoidal
 speed profile and a position PID, obstacle *stop* (not avoidance), manual
-driving, OLED, telemetry. No gyro, no x/y position, no route following yet.
+driving, OLED, telemetry. Since 2026-11-12: a speed loop under the position
+loop, 100 Hz motor PWM, and a gyro heading hold (which read the wrong gyro
+axis until 2026-11-22 and has not run with the right one yet). Since
+2026-11-22: an open-loop route (timed steps, no feedback, recorded on the
+car) that drove a square back to within 30-40 cm of the start. No x/y
+position, no turning by gyro, no route following yet.
 
 ## Documentation in this folder
 
 | File | Read it when |
 |---|---|
 | [docs/architecture.md](docs/architecture.md) | You need to know which file does what, what runs in which interrupt, and what data is shared |
-| [docs/control.md](docs/control.md) | You touch `car_drive.c`: the profile, the PID, kick-start, anti-windup, settle, the safety stops |
+| [docs/control.md](docs/control.md) | You touch `car_drive.c` or `car_heading.c`: the profile, the PID, the speed loop, anti-windup, settle, the safety stops, the heading hold, and what the car measured on 2026-11-12 |
 | [docs/hardware.md](docs/hardware.md) | Pins, timers, clocks, sensors, calibration values, the battery divider problem |
 | [docs/commands.md](docs/commands.md) | The serial commands, telemetry columns, CubeMonitor variables |
 | [docs/history.md](docs/history.md) | Branches, who wrote what, how the `integration` merge was done, where the old autopilot code is |
+| [docs/openloop.md](docs/openloop.md) | The open-loop route (`car_openloop.c`), the square of 2026-11-22 and every run of that evening, what the car showed (brake, dead zone, play, wheel spin) |
 | [docs/roadmap.md](docs/roadmap.md) | Open problems, things not verified on the car, what is missing for the final challenge |
+| [docs/todo.md](docs/todo.md) | **Start here for a new session:** the checklist for the next sessions (flash, video scenarios, checks on the car, firmware for the circuit, open questions) |
 
 The README at the repo root is the team-facing version. Keep both in step
 when behaviour changes.
@@ -62,7 +69,9 @@ does not work with a plain `arm-none-eabi-gcc`. From a terminal use:
 tools/build_check.sh        # compiles everything into build/, -Wall -Wextra on car_*.c
 ```
 
-It must finish with a size table and no warnings from `car_*.c`.
+It must finish with a size table and no warnings from `car_*.c`. On this
+Linux laptop it can also be flashed without CubeIDE (`st-flash`, see
+[docs/hardware.md](docs/hardware.md)); the ST-LINK is `/dev/ttyACM0`.
 
 There are no unit tests. The position loop can be exercised on the PC:
 
@@ -88,8 +97,26 @@ say clearly what was only simulated.
   prescaler or period breaks both `DRIVE_PERIOD_MS` and `SONAR_TICK_US`.
 - The position loop needs the encoder to count **up** when driving forward
   (`ENCODER_INVERT`). The old code used the absolute value and did not care.
-- The motor needs about 60 % to start moving but less to keep rolling. Any
-  new code that commands the motor from standstill must go through
-  `Apply_Motor_PWM()` in `car_drive.c` (or reuse its kick-start idea).
+- The motor is very uneven: the same % gave 2 to 20 cm/s on the car, and
+  the drivetrain has a tight spot. Any new code that needs a speed must go
+  through `Apply_Motor_PWM()` in `car_drive.c` (the speed loop), not set a
+  motor % from a table. The motor PWM runs at 100 Hz on purpose; at
+  CubeMX's 5 kHz the car does not start below 80 %.
+- I2C1 (OLED and gyro) is only used from the main loop. Do not read the
+  gyro from the TIM3 interrupt.
 - `BATT_DIVIDER` (6.58) does not match the wiring guide (4.03). See
   [docs/hardware.md](docs/hardware.md).
+- The MPU-6050 stands on its side: yaw is the **X** axis
+  (`IMU_YAW_AXIS 0`). `G` prints all three axis angles since `Y`; turn the
+  car by hand to check after any change to the mounting.
+- **Unplugging the USB resets the STM32.** Settings typed over USB are
+  gone. For untethered runs use Bluetooth (`tools/car_console.py
+  98:DA:20:0C:1A:63` on Linux) and put working values in the code.
+- The Bluetooth module loses the end of long bursts; `car_comms.c` paces
+  that port (20 bytes, 20 ms). Do not remove it. Long outputs go to one
+  port only (`lb_send_to`).
+- `motor_brake()` barely brakes (L298N voltage drop). Do not plan on a
+  short stop: from 60-90 cm/s the car rolls 40-80 cm.
+- On a full battery the car is far faster per % than the 2026-11-12
+  numbers (taken on a nearly empty pack). Anything open loop must be
+  calibrated at the battery voltage it runs at.

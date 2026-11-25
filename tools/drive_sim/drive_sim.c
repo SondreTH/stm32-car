@@ -11,14 +11,20 @@
  *
  * Options (name=value):
  *   d=<m>  tt= ta= td=<s>  kp= ki= kd=     the run, as with the car commands
- *   start=60   %: the model car does not move from standstill below this
- *   off=45.1   %: once rolling, speed = (pct - off) / slope
- *   slope=0.59 % per cm/s
- *   tau=0.25   s: how fast the speed follows the motor
+ *   sp= si=    speed loop gains Kvp, Kvi
+ *   start=33   %: the model car does not move from standstill below this
+ *   off=22     %: once rolling, speed = (pct - off) / slope
+ *   slope=0.5  % per cm/s
+ *   tau=0.8    s: how fast the speed follows the motor
+ *   coast=90   cm/s2: how hard friction slows the car with the motor off
+ *   bump=0     %: a tight spot in the drivetrain: every 21 cm of travel, for
+ *              5 cm, the car needs this much more motor
  *   crawl=0    cm/s: the model car cannot roll slower than this, it stops
  *   obst=<s>   put an obstacle in front from this time, for 2 s
  *
- * The model is a guess, not a measurement of our car: stiction, a first
+ * The defaults are fitted roughly to the open-loop steps of 2026-11-12 at
+ * 100 Hz PWM (40 % -> 30 cm/s, 50 % -> 54, 70 % -> 93, rolls out 16 cm from
+ * 54 cm/s). The real car is less regular than this: stiction, a first
  * order speed response, friction when coasting and a strong brake. Use it
  * to compare settings, not to predict centimetres.
  * ===================================================================== */
@@ -32,7 +38,7 @@
 
 /* ---- the model car ---- */
 static double x = 0, v = 0;            /* cm, cm/s */
-static double mStart = 60, mOff = 6500.0 / 144.0, mSlope = 85.0 / 144.0, mTau = 0.25, mCrawl = 0;
+static double mStart = 33, mOff = 22, mSlope = 0.5, mTau = 0.8, mCrawl = 0, mCoast = 90, mBump = 0;
 static int    braking = 0;
 static int32_t encZero = 0;
 
@@ -49,18 +55,20 @@ void    sonar_trigger(void)  {}
 static void plant_step(double dt) {
   double a;
   double p = fabs(motorPct), dir = motorPct < 0 ? -1 : 1;
-  if (braking)        a = (v == 0) ? 0 : -(v > 0 ? 1 : -1) * 150.0 - v / 0.1;
-  else if (p < 1.0)   a = (v == 0) ? 0 : -(v > 0 ? 1 : -1) * 60.0 - v / 1.0;
+  double sgn = v > 0 ? 1 : -1;
+  if (mBump > 0 && fmod(fabs(x) + 8.0, 21.0) < 5.0) p -= mBump;     /* tight spot */
+  if (braking)                 a = (v == 0) ? 0 : -sgn * 150.0 - v / 0.1;
+  else if (fabs(motorPct) < 1) a = (v == 0) ? 0 : -sgn * mCoast - v / 2.0;
   else if (v == 0 && p < mStart) a = 0;                       /* stiction */
   else {
     double vt = (p - mOff) / mSlope;
     if (vt < mCrawl) vt = 0;
     a = (dir * (vt > 0 ? vt : 0) - v) / mTau;
-    if (vt <= 0 && v != 0) a -= (v > 0 ? 1 : -1) * 60.0;
+    if (vt <= 0 && v != 0) a -= sgn * mCoast;
   }
   double vn = v + a * dt;
   if (v != 0 && vn * v < 0) vn = 0;                           /* friction stops, it does not reverse */
-  if (fabs(vn) < 0.05 && (braking || p < 1.0)) vn = 0;
+  if (fabs(vn) < 0.05 && (braking || fabs(motorPct) < 1.0 || p < mOff)) vn = 0;
   x += 0.5 * (v + vn) * dt;
   v = vn;
 }
@@ -87,6 +95,10 @@ int main(int argc, char **argv) {
   Kp = (float)opt(argc, argv, "kp", Kp);
   Ki = (float)opt(argc, argv, "ki", Ki);
   Kd = (float)opt(argc, argv, "kd", Kd);
+  Kvp = (float)opt(argc, argv, "sp", Kvp);
+  Kvi = (float)opt(argc, argv, "si", Kvi);
+  mCoast = opt(argc, argv, "coast", mCoast);
+  mBump  = opt(argc, argv, "bump", mBump);
   mStart = opt(argc, argv, "start", mStart);
   mOff   = opt(argc, argv, "off", mOff);
   mSlope = opt(argc, argv, "slope", mSlope);
@@ -100,7 +112,7 @@ int main(int argc, char **argv) {
   if (!drive_start((float)d)) { printf("run does not fit\n"); return 1; }
 
   double target = d * 100, dir = d < 0 ? -1 : 1;
-  double maxPast = 0, maxLag = 0, tMove = -1, tEnd = 0;
+  double maxPast = 0, maxLag = 0, tMove = -1, tEnd = 0, maxV = 0;
   int result = RUN_NONE, flips = 0, lastSign = 0;
   for (int step = 1; step <= 3000 && result == RUN_NONE; step++) {
     double t = step * DRIVE_PERIOD_MS / 1000.0;
@@ -108,6 +120,7 @@ int main(int argc, char **argv) {
       plant_step(0.001);
       double past = (x - target) * dir;
       if (past > maxPast) maxPast = past;
+      if (fabs(v) > maxV) maxV = fabs(v);
     }
     sonarCm = (obst >= 0 && t >= obst && t < obst + 2.0) ? 20.0f : SONAR_MAX_CM;
     drive_update();                                    /* the 100 ms control step */
@@ -125,7 +138,7 @@ int main(int argc, char **argv) {
   for (int i = 0; i < 2000; i++) plant_step(0.001);    /* let it roll out */
   if (csv) fclose(csv);
   printf("%-7s end %7.2f cm  err %+5.2f cm  past target %4.2f cm  max lag %5.2f cm  "
-         "moved after %.1f s  took %5.1f s (profile %.1f)  direction changes %d\n",
-         why[result], x, x - target, maxPast, maxLag, tMove, tEnd, T, flips);
+         "top speed %4.1f (plan %4.1f)  moved after %.1f s  took %5.1f s (profile %.1f)  direction changes %d\n",
+         why[result], x, x - target, maxPast, maxLag, maxV, Sn, tMove, tEnd, T, flips);
   return 0;
 }

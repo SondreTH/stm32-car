@@ -7,6 +7,8 @@ Core/Src/main.c            generated; calls App_Init() once, App_Loop() forever,
                            and holds the two HAL callbacks (USER CODE 4)
 Core/Src/car_app.c         application: commands, start button, OLED screen, telemetry
 Core/Src/car_drive.c       distance run: profile, position PID, obstacle pause (TIM3 interrupt)
+Core/Src/car_heading.c     MPU-6050 gyro: heading, heading hold (main loop)
+Core/Src/car_openloop.c    open-loop route: timed steps, recording, report (main loop)
 Core/Src/car_hw.c          motor, encoder, servo, battery ADC, buttons, I2C scan, sonar
 Core/Src/car_oled.c        SSD1306 / SH1106 driver with framebuffer and 5x7 font
 Core/Src/car_comms.c       UART ring buffers, line input, line builder for output
@@ -21,11 +23,21 @@ Dependencies go one way: `car_app` → `car_drive` → `car_hw` → HAL.
 `car_comms` and `car_oled` only depend on the HAL. Everything reads
 `car_config.h`.
 
+`car_heading.c` / `.h` (added 2026-11-12): MPU-6050 gyro, heading, and the
+steering that holds the heading during a run. `heading_poll()` is called
+from `App_Loop()`.
+
+`car_openloop.c` / `.h` (added 2026-11-22): the open-loop route, a list of
+timed steps played without feedback, with an on-board recording. `ol_poll()`
+runs in `App_Loop()` right after `heading_poll()`; `handle_command()` passes
+every command starting with `o` to `ol_command()`. See
+[openloop.md](openloop.md).
+
 ## What runs where
 
 | Context | Priority | Code | Period |
 |---|---|---|---|
-| Main loop | – | `App_Loop()`: `comms_poll` → `handle_command`, `button_poll`, run report, OLED redraw, telemetry, `comms_pump` | as fast as it goes; OLED redraw ~25 ms, every second control step (5 Hz) |
+| Main loop | – | `App_Loop()`: `comms_poll` → `handle_command`, `button_poll`, `heading_poll`, `ol_poll`, battery, `cal`, run report, OLED redraw, telemetry, `comms_pump` | as fast as it goes; OLED redraw ~25 ms, every second control step (5 Hz) |
 | TIM3 update interrupt | 2 | `HAL_TIM_PeriodElapsedCallback` → `drive_update()` | 100 ms |
 | EXTI9_5 (PA7, both edges) | 1 | `HAL_GPIO_EXTI_Callback` → `sonar_echo_edge()` | per echo |
 | USART1 / USART2 interrupts | 1 | HAL RX/TX → callbacks in `car_comms.c` | per byte / block |
@@ -65,6 +77,12 @@ active) safety checks → profile → PID → motor. See [control.md](control.md
 - `state != DRIVE_OFF`: the run owns the motor (interrupt).
 - `state == DRIVE_OFF` and `openLoopCms != 0` (the `v` command): the
   interrupt applies the open-loop speed every step, with kick-start.
+- `state == DRIVE_OFF` and an open-loop plan runs (`ol_busy()`): the plan
+  owns the motor and the servo (main loop). `drive_update()` leaves the
+  motor alone because `state` is 0 and `openLoopCms` is 0; it still
+  measures the speed, which the plan only records. Any manual command,
+  `d`, `v` or `cal` ends the plan first (`ol_cancel()`), and `Z` / `I` are
+  refused while it runs (they would reset the encoder or the gyro).
 - Otherwise the motor keeps whatever the last manual command set
   (`f`, `b`, `P`, `1`..`6`, `s`, `X`). There is no timeout on manual
   commands: `f` drives until another command arrives.
@@ -78,8 +96,14 @@ active) safety checks → profile → PID → motor. See [control.md](control.md
   lines on CR or LF (max 63 characters).
 - TX: 1024-byte ring per port, sent by interrupt in blocks. `lb_send(true)`
   drops the line if the ring is full (telemetry); `lb_send(false)` waits up
-  to 500 ms. At 9600 baud a telemetry line of ~45 characters takes ~47 ms,
-  so more than about 10 Hz cannot get through Bluetooth.
+  to 500 ms. The Bluetooth port sends pieces of 20 bytes with 20 ms
+  between them (the module loses data in longer bursts, see
+  [hardware.md](hardware.md#bluetooth)): about 400 bytes/s, so `T 5` is
+  the most that gets through.
+- `lb_send_to(port)` sends to one port only; `comms_from` is the port the
+  current command came from; `comms_tx_free(port)` is the room left. The
+  open-loop dump (`od`) uses them to answer only the port that asked and
+  to send only as fast as that port drains.
 - LD2 toggles on every Bluetooth byte and on every control step of a run.
 
 ## OLED
@@ -93,6 +117,8 @@ lost; the `I` command rescans I2C1 and restarts it.
 
 ## Start button
 
-`button_poll()`: a press of B1 (PC13) or the PB0 button arms a run of
-`BUTTON_RUN_M` (1 m) that starts `BUTTON_DELAY_MS` (1 s) later, without
-blocking. Any manual command disarms it.
+`button_poll()`: a press of B1 (PC13) or the PB0 button starts the
+open-loop plan `OL_DELAY_MS` (2 s) later; pressed again while the plan is
+armed or running, it stops it. With `ob 0` it arms a run of
+`BUTTON_RUN_M` (1 m) instead, `BUTTON_DELAY_MS` (1 s) later, as before
+2026-11-22. Any manual command disarms both.

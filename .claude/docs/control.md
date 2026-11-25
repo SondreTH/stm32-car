@@ -39,13 +39,64 @@ During states 1–3:
 ```
 error   = Pos_Ref - Real_Dist
 command = SP_Vel + Kp*error + Ki*ErrorAcum + Kd*ErrorRate        (cm/s)
-motor % = MOTOR_MIN_PCT + |command| * MOTOR_PCT_PER_CMS, in the direction of command
+          (the PID part is limited to +-PID_OUT_MAX_CMS, 12 cm/s)
+
+speed loop, in Apply_Motor_PWM (since 2026-11-12):
+ev      = |command| - speed in that direction
+motor % = MOTOR_MIN_PCT + |command| * MOTOR_PCT_PER_CMS + Kvp*ev + SpeedAcum
+SpeedAcum += Kvi * ev * dt
 ```
 
-`SP_Vel` is feed-forward. If the motor map (`MOTOR_MIN_PCT`,
-`MOTOR_PCT_PER_CMS`) is right, the PID has almost nothing to do. Defaults:
-Kp 3, Ki 2, Kd 0 (Hakon's values from the car, originally for a speed
-loop), map 45.1 % + 0.59 %/(cm/s).
+`SP_Vel` is feed-forward for the position loop, and the motor line
+(`MOTOR_MIN_PCT`, `MOTOR_PCT_PER_CMS`) is feed-forward for the speed loop.
+Defaults: Kp 3, Ki 2, Kd 0 (Hakon's values), Kvp 1.0, Kvi 1.5, motor line
+22 % + 0.5 %/(cm/s) at 100 Hz PWM.
+
+## What the car showed on 2026-11-12 (logs in `tools/logs/`, not in git)
+
+First runs on the real car. They are the reason for the speed loop.
+
+- At the CubeMX PWM frequency of 5 kHz the car did nothing up to 70-80 %
+  and then ran away to 80-90 cm/s. PWM is on the L298N enable pin, so the
+  motor coasts between pulses; short pulses give almost no torque at
+  standstill. Hakon's line (45.1 % + 0.59 %/(cm/s), start at 60 %) did not
+  hold: a 1 m run stood for 2 s, shot to 62 cm/s and ended 6.4 cm too far.
+- Open-loop steps at other frequencies (`pf`): 500 Hz was as bad as 5 kHz.
+  At 100 Hz: 40 % gave 25-40 cm/s, 50 % 54 cm/s, 70 % 93 cm/s, started
+  within 0.1 s. At 200 Hz in between. 100 Hz is now the default
+  (`MOTOR_PWM_HZ`).
+- Even at constant % the speed surged (30 % at 50 Hz: 2..20 cm/s and back).
+  The team confirmed a tight spot in the drivetrain by hand. Not fixed yet.
+- With the motor off the car stops by friction at roughly 90 cm/s2 (rolled
+  16 cm from 54 cm/s, 32 cm from 93 cm/s).
+
+So the same % gives very different speeds: only a loop on the measured
+speed can hold 18 cm/s.
+
+### With the speed loop and heading hold (same day, later)
+
+Six logged runs (2 m, 5 m, one stopped by hand), Kp 3, Ki 2, Kvp 1, Kvi
+1.5, 100 Hz, `kh` 10-20:
+
+| | Result |
+|---|---|
+| End position | within 1.0 cm of the target in every finished run |
+| Start | moving after 0.2-0.4 s |
+| Cruise speed | mean 17.2-18.0 cm/s (plan 18), but swinging: 10th-90th percentile about 10..26 cm/s |
+| Rhythm of the swing | about 40 cm of travel, 2.1-2.4 s; the speed 20 cm later is the opposite (correlation -0.6 to -0.9) |
+| Motor % in cruise | mean 18-33 %, swinging between about 8 and 55 % |
+| Lag behind the reference | mostly within 2-3 cm, up to 8.5 cm |
+| Heading | within 1-2.5 degrees in four runs; crept to +5 degrees in two 5 m runs. **Void:** the gyro axis was wrong (found 2026-11-22), this was pitch/roll drift, and the hold steered on it (70-90 µs right in the two 5 m runs), not on the heading |
+
+Not explained yet: the swing (tight spot, or position loop and speed loop
+too close in speed: Kp 3 /s on top of a speed loop that needs about half a
+second). The "heading creep" was the wrong gyro axis (see above). The
+battery went flat during this session (7.9 V), which may have affected the
+last runs. See [roadmap.md](roadmap.md) for the tests that decide.
+
+`drive_sim` shows the same kind of swing when its model gets a tight spot
+(`bump=10` or `15`): speed 6..30 cm/s. Lower position gains (`kp=1
+ki=0.5`) reduce it by about a quarter there, not more.
 
 ## Why the extra logic exists
 
@@ -58,14 +109,20 @@ stored integral then pushed the car past the target; very short runs never
 moved at all. (In `drive_sim` with the default model: the old code started
 after 1.1 s, a 10 cm run ended 6 cm too far, and a 5 cm run did not move.)
 
-### Kick-start (`Apply_Motor_PWM`)
+The paragraph above is the history of the first version (5 kHz PWM, 60 %
+start). The numbers changed on 2026-11-12, the idea did not.
+
+### Start and speed loop (`Apply_Motor_PWM`)
 
 "Standing" means the last step's speed was under `DRIVE_MOVING_CMS`
 (1.5 cm/s = fewer than 2 encoder counts in 100 ms). A standing car that is
-commanded to move gets at least `MOTOR_START_PCT` (60 %). For every step it
-still stands, the kick grows by `KICK_RAMP_PCT_S` (20 % per second), which
-covers a low battery or a rough floor. As soon as the encoder sees
-movement, the normal map applies.
+commanded to move gets at least `MOTOR_START_PCT` (30 %). For every step it
+still stands, `SpeedAcum` grows by at least `KICK_RAMP_PCT_S` (25 % per
+second), which covers a tight spot, a low battery or a rough floor. Once
+it moves, the PI on the speed error takes over: too fast lowers the motor
+%, down to 0 (coast; it never drives backwards to slow down), too slow
+raises it. `SpeedAcum` is limited to +-`SPEED_I_MAX_PCT`, stops growing at
+0 % and 100 %, and is cleared whenever the motor is let go.
 
 ### Anti-windup (`ControlPID`)
 
@@ -132,12 +189,44 @@ encoder the error would grow as the car drives and the motor would go to
 100 %. `RUN_STALL` also covers an unplugged encoder. Both also apply to the
 open-loop `v` command (stall only).
 
-## Open loop (`v` command)
+## Holding a speed (`v` command)
 
-`Set_Speed_cm_s(v)` stores `openLoopCms`. While no run is active,
-`drive_update()` applies it through `Apply_Motor_PWM` every step, so `v`
-also gets the kick-start. There is no feedback: the speed is whatever the
-motor map gives.
+`Set_Speed_cm_s(v)` stores `openLoopCms` (the name is from before the
+speed loop). While no run is active, `drive_update()` applies it through
+`Apply_Motor_PWM` every step, so `v18` holds 18 cm/s with the speed loop.
+It is the easiest way to tune `sp` / `si`: `T 10`, `v18`, look at the speed.
+
+## Heading hold (`car_heading.c`)
+
+Runs in the main loop, not in the interrupt (the OLED uses the same I2C
+bus from the main loop). Every 5 ms or more it reads the MPU-6050 gyro and
+adds up `yawDeg += (rate - bias) * dt`, with dt measured, so the 25 ms OLED
+update does not matter. Positive yaw = turned left.
+
+- Bias: 200 readings at start-up (0.6 s, car must stand still), then
+  trimmed slowly while the car stands with the motor off and nobody turns
+  it (under 1 deg/s).
+- When a run starts (`state` leaves 0) the heading is remembered. During
+  the run: `servo = SERVO_CENTER_US + dir * STEER_KH * headingErrDeg`,
+  limited to the servo range; `dir` is -1 for a reverse run. When the run
+  ends the servo goes back to centre.
+- `kh 0` turns it off. `sc <us>` trims the centre pulse. If the gyro stops
+  answering, the hold stops and the servo centres; `I` tries again.
+- **Until 2026-11-22 it read the wrong gyro axis** (Z; the module stands
+  on its side, X is up). The heading never saw a turn, and the hold
+  steered on pitch/roll drift instead: the 2026-11-12 runs that "stayed
+  within 1-2.5 degrees" and the "heading creep" were the wrong axis. Fixed (`IMU_YAW_AXIS 0`), and
+  the sign is checked (left turn = +). **The hold has not run on the car
+  with the right axis yet.** The direction follows from the checks (+yaw
+  = left, larger µs = right, both seen on 2026-11-22), but 15 µs/deg may
+  be too much: at 350 µs the car turns with a radius of about 65 cm.
+  First test: `d2` at the normal 18 cm/s, watch it. `drive_sim` does not
+  model steering.
+- The steering has play: after a right turn the centre pulse leaves the
+  wheels a little right (about the effect of +50 µs). A P-only hold
+  leaves an error to hold against that; an integral term would remove it.
+- A failed gyro reading no longer loses time (see
+  [hardware.md](hardware.md#i2c1)).
 
 ## Checking a change: `tools/drive_sim`
 
@@ -172,7 +261,8 @@ been run on the real car. See [roadmap.md](roadmap.md).
 - A faster control step (20–50 Hz) would make the stop finer. The course
   material asks for 100 ms, and TIM3 is shared with the sonar timing.
 - Scale the motor map with the battery voltage (the map was tuned at one
-  voltage; a 3S LiPo goes from 12.6 V to about 10 V). Needs a trustworthy
-  battery reading first.
+  voltage; a 3S LiPo goes from 12.6 V to about 10 V). The speed loop
+  corrects it anyway in closed loop. The open-loop plan has it (`ov`, see
+  [openloop.md](openloop.md)).
 - A separate speed loop inside the position loop (cascade). The
   feed-forward plus position PID is simpler and matches Activity 2.6.

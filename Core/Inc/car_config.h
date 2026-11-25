@@ -21,8 +21,8 @@
  *   PC13 GPIO in    B1           blue user button
  *   PA2/PA3 USART2  ST-LINK virtual COM port (USB), 115200
  *   TIM3 (no pin)                control loop interrupt every 100 ms
- * The OLED (0x3C) and the MPU-6050 (0x68) share I2C1. No code reads the
- * MPU-6050 yet.
+ * The OLED (0x3C) and the MPU-6050 (0x68) share I2C1, both used from the
+ * main loop only.
  * ===================================================================== */
 #ifndef CAR_CONFIG_H
 #define CAR_CONFIG_H
@@ -32,7 +32,7 @@ extern "C" {
 #endif
 
 /* ---- direction fixes: flip one if a bring-up test goes the wrong way ---- */
-#define ENCODER_INVERT  0   /* driving forward must INCREASE counts */
+#define ENCODER_INVERT  1   /* driving forward must INCREASE counts (checked on the car 2026-11-12) */
 #define MOTOR_INVERT    0   /* "P 30" must drive the car FORWARD    */
 
 /* ---- OLED (car_oled.c): match your module ---- */
@@ -42,8 +42,20 @@ extern "C" {
 
 /* ---- steering servo (TIM2, 1 us per tick), measured on the car ---- */
 #define SERVO_PULSE_MIN     600   /* us, full left  */
-#define SERVO_PULSE_CENTER 1100   /* us, straight   */
+#define SERVO_PULSE_CENTER 1080   /* us, straight: default of SERVO_CENTER_US ("sc").
+                                     1080 drove straight on 2026-11-12 (was 1100) */
 #define SERVO_PULSE_MAX    1500   /* us, full right */
+
+/* ---- MPU-6050 gyro (car_heading.c) ---- */
+#define IMU_YAW_AXIS    0     /* which gyro axis points up: 0 = X, 1 = Y, 2 = Z (module lying flat).
+                                 The module stands on its side: X is up. Until 2026-11-22 this
+                                 was 2, so the heading never saw a turn. "G" shows all three axes */
+#define IMU_YAW_SIGN    1.0f  /* turning the car LEFT must make yaw go UP: else set -1.0f           */
+
+/* ---- motor PWM ---- */
+#define MOTOR_PWM_HZ      100     /* set at start-up, "pf" changes it. PWM is on the L298N enable
+                                     pin: at CubeMX's 5 kHz the car needed 80-90 % to start, at
+                                     100 Hz 30-40 % (tests of 2026-11-12). It buzzes; that is normal */
 
 /* ---- distance run (car_drive.c) ---- */
 #define DRIVE_PERIOD_MS   100     /* speed profile + PID step (M2.9 slide 20).
@@ -55,12 +67,14 @@ extern "C" {
 
 /* ---- position loop (car_drive.c). Gains Kp/Ki/Kd are in car_drive.c ---- */
 #define PID_I_MAX_CMS       10.0f /* anti-windup: the I term never adds more than this (cm/s) */
+#define PID_OUT_MAX_CMS     12.0f /* the whole PID correction never adds more than this (cm/s) */
+#define SPEED_I_MAX_PCT     80.0f /* speed loop: its I term stays within +- this (motor %)    */
 #define DRIVE_CMD_MIN_CMS   1.0f  /* commands smaller than this coast instead of driving      */
 #define DRIVE_MOVING_CMS    1.5f  /* slower than this (2 counts per step) = standing still    */
-#define DRIVE_SETTLE_S      3.0f  /* after the profile: at most this long to reach the target */
+#define DRIVE_SETTLE_S      5.0f  /* after the profile: at most this long to reach the target */
 #define DRIVE_MAX_REVERSALS 1     /* settling: change direction at most this often            */
-#define KICK_RAMP_PCT_S     20.0f /* kick-start: add this much % per second while still standing */
-#define DRIVE_STALL_S       2.5f  /* motor driven this long without counts: give up           */
+#define KICK_RAMP_PCT_S     25.0f /* a standing car: add at least this much % per second       */
+#define DRIVE_STALL_S       3.0f  /* motor driven this long without counts: give up           */
 #define ENC_FAULT_CM        3.0f  /* this far the wrong way: encoder direction is wrong       */
 
 /* ---- obstacle stop (HC-SR04) ---- */
@@ -71,6 +85,11 @@ extern "C" {
 
 #define MANUAL_PCT        60.0f   /* f / b commands */
 
+/* ---- battery warning (car_app.c). 3S LiPo: 12.6 V full, 11.1 V nominal ---- */
+#define BATT_LOW_V        9.9f    /* 3.3 V per cell: warn, stop driving and charge.
+                                     Below 9.0 V (3.0 V per cell) the cells are damaged */
+#define BATT_PRESENT_V    5.0f    /* reading under this = no battery (USB power): no warning */
+
 /* ---- values that commands can change (defaults in car_config.c) ---- */
 extern float COUNTS_PER_METER;    /* M   encoder counts per metre                          */
 extern float DRIVE_SPEED_CMS;     /* vn  nominal speed Sn of a run without a set time      */
@@ -80,6 +99,8 @@ extern float MOTOR_START_PCT;     /* ms  needed to get the car moving from stand
 extern float MOTOR_MIN_PCT;       /* mo  offset once it rolls                              */
 extern float MOTOR_PCT_PER_CMS;   /* mg  slope, % per cm/s                                 */
 extern float BATT_DIVIDER;        /* vb  battery volts per volt on PA4                     */
+extern float SERVO_CENTER_US;     /* sc  servo pulse that drives straight                  */
+extern float STEER_KH;            /* kh  heading hold: us of steering per degree off, 0 = off */
 
 #ifdef __cplusplus
 }
