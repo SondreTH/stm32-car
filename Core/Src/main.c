@@ -3,6 +3,7 @@
   ******************************************************************************
   * @file           : main.c
   * @brief          : MR2006B Team 7 (Ninjago) car (NUCLEO-F446RE)
+  * @date           : 2026-11-25 12:39 (closed-loop route, batt 6.71, vn 30)
   *
   * Motor (TIM1 PWM + IN1/IN2), encoder (TIM5), steering servo (TIM2),
   * battery (ADC1), OLED (I2C1), USB + Bluetooth commands, start buttons.

@@ -494,7 +494,7 @@ void App_Init(void) {
   comms_init();
   hw_init();
   HAL_Delay(200);
-  say("MR2006B Team 7 (Ninjago) car ready. Type ? for commands.");
+  say("MR2006B Team 7 (Ninjago) car ready [" __DATE__ " " __TIME__ "]. Type ? for commands.");
   oled_start();
   gyro_start();
   print_settings();
