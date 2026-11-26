@@ -27,6 +27,7 @@ position, no turning by gyro, no route following yet.
 | [docs/commands.md](docs/commands.md) | The serial commands, telemetry columns, CubeMonitor variables |
 | [docs/history.md](docs/history.md) | Branches, who wrote what, how the `integration` merge was done, where the old autopilot code is |
 | [docs/openloop.md](docs/openloop.md) | The open-loop route (`car_openloop.c`), the square of 2026-11-22 and every run of that evening, what the car showed (brake, dead zone, play, wheel spin) |
+| [docs/circuit.md](docs/circuit.md) | The closed-loop route (`car_route.c`, Hakon) on the real track: the runs of 2026-11-25/26, the settings that worked (`sc 1108`, `rtu 222`, `rtl 2`, turns −88.8), the gyro factor, what is still not understood, how to measure the next run |
 | [docs/roadmap.md](docs/roadmap.md) | Open problems, things not verified on the car, what is missing for the final challenge |
 | [docs/todo.md](docs/todo.md) | **Start here for a new session:** the checklist for the next sessions (flash, video scenarios, checks on the car, firmware for the circuit, open questions) |
 
@@ -80,6 +81,16 @@ gcc -O2 -Wall -Wextra -Itools/drive_sim -ICore/Inc tools/drive_sim/drive_sim.c \
     Core/Src/car_drive.c Core/Src/car_config.c -lm -o tools/drive_sim/drive_sim
 tools/drive_sim/drive_sim d=1           # 1 m run, prints a one-line summary
 tools/drive_sim/drive_sim d=0.1 start=70 off=52 slope=0.8 tau=0.45   # a different model car
+```
+
+The route (`car_route.c`, including going around an obstacle) has its own
+test with a model car and a box on the floor:
+
+```
+gcc -O2 -Wall -Wextra -Itools/route_sim -ICore/Inc tools/route_sim/route_sim.c \
+    Core/Src/car_route.c Core/Src/car_drive.c Core/Src/car_config.c -lm -o tools/route_sim/route_sim
+tools/route_sim/route_sim                  # 10 m straight, 50 cm box at 5 m: drives around it
+tools/route_sim/route_sim ras=-1 then=1    # right side, then a turn and 3 m
 ```
 
 Run it after every change to `car_drive.c`, over short and long distances

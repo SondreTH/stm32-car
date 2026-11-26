@@ -28,6 +28,16 @@ the run time; `M 1035` is counts per metre, `ms 60` is the start power;
 | `pf <Hz>` | motor PWM frequency, 50..5000, default 100 | TIM1 prescaler |
 | `kh <us/deg>` | heading hold gain, 0 = off, negative flips the direction | `STEER_KH` |
 | `sc <us>` | servo pulse that drives straight | `SERVO_CENTER_US` |
+| `so <s>` | obstacle stop distance: 30 cm + this many seconds x speed (0..3, default 1 = 100 cm at 70 cm/s, 0 = the old 30 cm) | `OBST_LOOK_S` |
+| `rp` / `rs` / `rg` / `rb` / `rtu` / `rtv` / `rtl` | the route (`car_route.c`): set, edit, go, button, turn settings; see [circuit.md](circuit.md) | `routePlan`, `routeTurn*` |
+| `ra` | show the settings for going around an obstacle | – |
+| `raw <s>` | a route straight blocked this long: go around (0 = only wait), default 10 | `routeAvoidWaitS` |
+| `ras <1/-1>` | go around on the left (1, default) or right (-1) | `routeAvoidSide` |
+| `raa <deg>` | angle out of the straight, default 45 | `routeAvoidDeg` |
+| `rao <m>` | diagonal leg out and back in, default 1.0 (about 1.1 m to the side in all) | `routeAvoidOutM` |
+| `rap <m>` | leg beside the obstacle, default 1.0 | `routeAvoidPassM` |
+| `rab <m>` | back up first, default 0.5 | `routeAvoidBackM` |
+| `rav <cm/s>` | speed of the detour legs, default 30 | `routeAvoidSpeed` |
 | `Y` | zero the heading (and the three axis angles in `G`) | `yawDeg` |
 | `cal` | steering calibration drive: holds the nominal speed and nine servo pulses for 3 s each, prints the turn radius of each. Needs the gyro and a clear strip 5 m x 2 m. `s` stops it | – |
 | `ol` | show the open-loop plan | `olPlan[]` |

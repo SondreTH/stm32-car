@@ -64,6 +64,29 @@ to where it started. Footage of the tuning runs exists (the last one,
       the steering play leave a constant offset? (Then the hold needs an
       integral term.)
 
+## 3b. Circuit (added 2026-11-26, see [circuit.md](circuit.md))
+
+Hakon's `car_route.c` (on `main`) drives the track with gyro turns; run 2
+and 3 of 2026-11-26 went all the way round. Open:
+
+- [ ] Next run with measurements at every 10 s stop and a taped start
+      ([circuit.md](circuit.md#how-to-measure-the-next-run)); or a map of
+      the track with a scale.
+- [ ] Fix the end of the route from that (last side and the closing turn).
+- [ ] Put `sc 1108`, `rtu 222`, `rtl 2` and the route in the code.
+- [ ] Heading hold: sign from the measured speed when backing up; an I
+      term instead of the `sc` trim.
+- [ ] Stall check that cannot be reset by stray counts; the
+      encoder-direction check must not end a route.
+- [ ] Repeat the circle test (gyro factor 1.0135, one measurement).
+- [ ] **Going around an obstacle** (branch `obstacle-avoidance`, only run in
+      `tools/route_sim`): test on the car with a box about 50 cm wide on a
+      straight. Find out what the course's obstacles are and set
+      `rao`/`rap`/`ras` for them.
+- [ ] The encoder-direction check (`ENC_FAULT_CM`, 3 cm) ended runs 6 of
+      2026-11-26 and 1 of 2026-11-25 when the car rolled back on the slope
+      at the start of side 3. It should not end a route.
+
 ## 4. Firmware for the full circuit
 
 Open loop cannot do 150 m: the same timed turn gave 73 to 109 degrees.

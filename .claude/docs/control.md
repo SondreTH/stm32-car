@@ -171,11 +171,35 @@ overshoot swing and no jitter around zero error.
 
 ## Obstacle pause
 
-Every step: `sonarCm < OBST_STOP_CM` (30) twice in a row sets `obstacle`;
-`sonarCm > OBST_CLEAR_CM` (35) clears it. While set, a **forward** run
-brakes and returns before the profile clock advances, so `time_ctl` and
-`Pos_Ref` freeze and the run continues where it was. Reverse runs ignore
-the sonar (it looks forward).
+Every step the stop distance is worked out from the speed (since
+2026-11-26; before it was a fixed 30 cm, too late at 70 cm/s with the weak
+brake):
+
+```
+obstStopCm = OBST_STOP_CM + OBST_LOOK_S x max(planned speed, measured speed)
+           = 30 cm + 1.0 s x 70 cm/s = 100 cm when cruising, 52 cm in a 22 cm/s turn
+```
+
+The planned speed is `SP_Vel` in a run and the held speed (`v`, the route's
+turns) otherwise. `sonarCm < obstStopCm` twice in a row sets `obstacle`;
+`sonarCm > obstStopCm + OBST_HYST_CM` (10) clears it. Readings under
+`SONAR_MIN_CM` (2 cm) are ignored: the HC-SR04 cannot measure that close,
+they were noise from a loose wire. `so <s>` sets `OBST_LOOK_S`; `so 0`
+gives the old 30 cm.
+
+While `obstacle` is set, a **forward** run brakes and returns before the
+profile clock advances, so `time_ctl`, `SP_Vel` and `Pos_Ref` freeze and
+the run continues where it was (the frozen `SP_Vel` keeps the distance to
+clear the same while it stands). A forward held speed (`v`, route turns)
+brakes too and goes on when clear. Reverse runs ignore the sonar (it looks
+forward).
+
+In the PC simulator (`drive_sim d=10 wall=500`): with a weak brake
+(`brake=40` cm/s², about what the car showed on 2026-11-22) the old 30 cm
+stop hit the wall at 58 cm/s; with `so 1` the car stopped 26 cm before it.
+
+The route (`car_route.c`) can drive around an obstacle that does not move;
+see [circuit.md](circuit.md#going-around-an-obstacle).
 
 ## Safety stops
 
