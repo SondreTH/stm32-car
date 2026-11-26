@@ -32,3 +32,9 @@ float BATT_DIVIDER = 6.71f;
  * If the car steers further away instead of back, see IMU_YAW_SIGN. */
 float SERVO_CENTER_US = SERVO_PULSE_CENTER;
 float STEER_KH        = 15.0f;
+
+/* Obstacle stop distance = OBST_STOP_CM + OBST_LOOK_S x speed: 100 cm at
+ * 70 cm/s, 52 cm in a turn at 22 cm/s, 30 cm standing. From 70 cm/s the
+ * car rolled 40-80 cm after the brake (2026-11-22), and the sonar needs two
+ * readings (0.2 s) before it brakes, so 30 cm was too late. */
+float OBST_LOOK_S     = 1.0f;

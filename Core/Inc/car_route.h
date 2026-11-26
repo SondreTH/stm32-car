@@ -35,6 +35,14 @@ extern bool  routeButton;       /* rb: start button runs the closed-loop route *
 extern float routeTurnUs;       /* rtu: steering offset in us during turns */
 extern float routeTurnSpeed;    /* rtv: speed in cm/s during turns */
 extern float routeTurnLeadDeg;  /* rtl: stop turning this many deg early */
+/* going around an obstacle that blocks a straight (see car_route.c) */
+extern float routeAvoidWaitS;   /* raw: blocked this long, then go around (0 = only wait) */
+extern float routeAvoidSide;    /* ras: +1 = left, -1 = right */
+extern float routeAvoidDeg;     /* raa: angle out of the straight */
+extern float routeAvoidOutM;    /* rao: diagonal leg out and back in (m) */
+extern float routeAvoidPassM;   /* rap: leg beside the obstacle (m) */
+extern float routeAvoidBackM;   /* rab: back up first (m) */
+extern float routeAvoidSpeed;   /* rav: speed of the detour legs (cm/s) */
 
 void route_command(const char *line);
 void route_poll(int driveRes);  /* call from main loop after drive_result() */

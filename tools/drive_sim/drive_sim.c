@@ -21,6 +21,11 @@
  *              5 cm, the car needs this much more motor
  *   crawl=0    cm/s: the model car cannot roll slower than this, it stops
  *   obst=<s>   put an obstacle in front from this time, for 2 s
+ *   wall=<cm>  an object that does not move, this far from the start
+ *              (prints how close the car got to it)
+ *   brake=<cm/s2>  the brake slows the car this much (default: a strong
+ *              brake; the real one was about 40 on 2026-11-22)
+ *   so=<s>     obstacle look-ahead OBST_LOOK_S (0 = the old 30 cm stop)
  *
  * The defaults are fitted roughly to the open-loop steps of 2026-11-12 at
  * 100 Hz PWM (40 % -> 30 cm/s, 50 % -> 54, 70 % -> 93, rolls out 16 cm from
@@ -38,7 +43,7 @@
 
 /* ---- the model car ---- */
 static double x = 0, v = 0;            /* cm, cm/s */
-static double mStart = 33, mOff = 22, mSlope = 0.5, mTau = 0.8, mCrawl = 0, mCoast = 90, mBump = 0;
+static double mStart = 33, mOff = 22, mSlope = 0.5, mTau = 0.8, mCrawl = 0, mCoast = 90, mBump = 0, mBrake = 0;
 static int    braking = 0;
 static int32_t encZero = 0;
 
@@ -57,7 +62,8 @@ static void plant_step(double dt) {
   double p = fabs(motorPct), dir = motorPct < 0 ? -1 : 1;
   double sgn = v > 0 ? 1 : -1;
   if (mBump > 0 && fmod(fabs(x) + 8.0, 21.0) < 5.0) p -= mBump;     /* tight spot */
-  if (braking)                 a = (v == 0) ? 0 : -sgn * 150.0 - v / 0.1;
+  if (braking && mBrake > 0)   a = (v == 0) ? 0 : -sgn * mBrake;
+  else if (braking)            a = (v == 0) ? 0 : -sgn * 150.0 - v / 0.1;
   else if (fabs(motorPct) < 1) a = (v == 0) ? 0 : -sgn * mCoast - v / 2.0;
   else if (v == 0 && p < mStart) a = 0;                       /* stiction */
   else {
@@ -105,6 +111,10 @@ int main(int argc, char **argv) {
   mTau   = opt(argc, argv, "tau", mTau);
   mCrawl = opt(argc, argv, "crawl", mCrawl);
   double obst = opt(argc, argv, "obst", -1);
+  double wall = opt(argc, argv, "wall", -1);
+  mBrake = opt(argc, argv, "brake", 0);
+  OBST_LOOK_S = (float)opt(argc, argv, "so", OBST_LOOK_S);
+  double minGap = 1e9;
   const char *csvName = opts(argc, argv, "csv");
   FILE *csv = csvName ? fopen(csvName, "w") : NULL;
   if (csv) fprintf(csv, "t_ms,state,sp_cms,speed_cms,dist_cm,counts,motor_pct,ref_cm,sonar_cm\n");
@@ -123,6 +133,16 @@ int main(int argc, char **argv) {
       if (fabs(v) > maxV) maxV = fabs(v);
     }
     sonarCm = (obst >= 0 && t >= obst && t < obst + 2.0) ? 20.0f : SONAR_MAX_CM;
+    if (wall >= 0) {
+      double gap = wall - x;
+      if (gap < minGap) minGap = gap;
+      sonarCm = (gap > 0 && gap < SONAR_MAX_CM) ? (float)gap : (gap <= 0 ? 0.0f : SONAR_MAX_CM);
+      if (gap <= 0) { printf("HIT the wall at %.1f s, %.0f cm/s\n", t, v); break; }
+      if (obstacle && fabs(v) < 0.1 && t > 5 && step % 50 == 0) {   /* standing at the wall: done */
+        printf("stopped %.1f cm in front of the wall (so=%.1f s)\n", minGap, OBST_LOOK_S);
+        break;
+      }
+    }
     drive_update();                                    /* the 100 ms control step */
     int sign = motorPct > 0 ? 1 : (motorPct < 0 ? -1 : 0);
     if (sign && lastSign && sign != lastSign) flips++;

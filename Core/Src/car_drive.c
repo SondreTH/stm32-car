@@ -32,7 +32,9 @@
  *    P and D only, in either direction, and stops inside POS_TOL_CM. It
  *    changes direction at most DRIVE_MAX_REVERSALS times, so it cannot
  *    hunt around the target.
- * The HC-SR04 pauses a forward run while something is closer than OBST_STOP_CM.
+ * The HC-SR04 pauses a forward run while something is closer than the stop
+ * distance: OBST_STOP_CM plus OBST_LOOK_S seconds of driving (100 cm at
+ * 70 cm/s), because the brake needs that much room.
  *
  * Names and types are kept from the original so the CubeMonitor setup
  * still finds them. Motor and encoder go through car_hw.c.
@@ -91,7 +93,8 @@ volatile float Pos_Ref = 0.0f;        // Reference position: area under SP_Vel s
 volatile float run_T  = 0.0f;         // Timed run: total time (s), 0 = nominal speed instead
 volatile float run_ta = DRIVE_RAMP_S; // Timed run: acceleration time (s)
 volatile float run_td = DRIVE_RAMP_S; // Timed run: deceleration time (s)
-volatile bool  obstacle = false;      // Run paused: something closer than OBST_STOP_CM
+volatile bool  obstacle = false;      // Run paused: something closer than obstStopCm
+volatile float obstStopCm = OBST_STOP_CM;   // Stop distance now: grows with the speed
 volatile uint32_t driveSteps = 0;     // Control steps so far
 static int obstHits = 0;              // Close readings in a row
 
@@ -206,6 +209,16 @@ bool Start_Timed_Profile(float dist_m, float total_s, float accel_s, float decel
   t2 = T - d_ramp;
   time_ctl = 0.0f;
   state = DRIVE_ACCEL; // Start in Area 1 (Acceleration)
+  return true;
+}
+
+/* A run at its own speed, whatever vn and tt say (the route drives around
+ * an obstacle slowly). TIM3 is held off while the run is set up. */
+bool drive_start_at(float dist_m, float speed_cm_s) {
+  if (fabsf(dist_m) < 0.01f || speed_cm_s < 1.0f) return false;
+  HAL_NVIC_DisableIRQ(TIM3_IRQn);
+  Start_Motion_Profile(dist_m, speed_cm_s, DRIVE_RAMP_S);
+  HAL_NVIC_EnableIRQ(TIM3_IRQn);
   return true;
 }
 
@@ -422,15 +435,30 @@ void drive_update(void) {
   bool moving = fabsf(Speed_CM_SEC) >= DRIVE_MOVING_CMS;
 
   /* Obstacle: two close readings in a row to stop, clear to continue.
-   * Then start the next sonar measurement (its echo is read before next step). */
-  if (sonarCm < OBST_STOP_CM) { if (obstHits < 2) obstHits++; }
+   * The brake is weak, so the stop distance grows with the speed: what the
+   * car is meant to drive (profile or speed hold) or what it drives now,
+   * whichever is more. While paused the profile is frozen, so the distance
+   * it takes to go on stays the same. Readings under SONAR_MIN_CM are not
+   * real echoes. Then start the next sonar measurement (its echo is read
+   * before the next step). */
+  float planned = fabsf(state != DRIVE_OFF ? SP_Vel : openLoopCms);
+  float driving = fabsf(Speed_CM_SEC);
+  obstStopCm = OBST_STOP_CM + OBST_LOOK_S * (planned > driving ? planned : driving);
+  if (sonarCm >= SONAR_MIN_CM && sonarCm < obstStopCm) { if (obstHits < 2) obstHits++; }
   else obstHits = 0;
   if (obstHits >= 2) obstacle = true;
-  else if (sonarCm > OBST_CLEAR_CM) obstacle = false;
+  else if (sonarCm > obstStopCm + OBST_HYST_CM) obstacle = false;
   sonar_trigger();
 
-  /* No run: only the "v" command (hold a speed) drives from here */
+  /* No run: only a held speed ("v", the route's turns) drives from here.
+   * Driving forward it pauses for an obstacle too, and goes on when clear. */
   if (state == DRIVE_OFF) {
+    if (openLoopCms > 0.0f && obstacle) {
+      motor_brake();
+      stallTime = 0.0f;
+      SpeedAcum = 0.0f;
+      return;
+    }
     if (openLoopCms != 0.0f) {
       Apply_Motor_PWM(openLoopCms);
       if (stallTime >= DRIVE_STALL_S) finish_run(RUN_STALL);

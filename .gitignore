@@ -21,3 +21,4 @@ __pycache__/
 *.pyc
 tools/drive_sim/drive_sim
 build/
+tools/route_sim/route_sim
