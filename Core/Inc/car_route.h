@@ -17,6 +17,9 @@ extern "C" {
 #define ROUTE_MAX_STEPS       32
 #define ROUTE_DELAY_MS        2000   /* countdown before starting ("rg" or button) */
 #define ROUTE_TURN_TIMEOUT_MS 15000  /* safety timeout for a single turn */
+#define ROUTE_LINE_GAIN       0.5f   /* after a detour: aim this many deg back towards the line per cm off it */
+#define ROUTE_LINE_MAX_DEG    15.0f  /* ... but at most this many deg */
+#define ROUTE_TURN_RADIUS_CM  73.0f  /* turn radius at rtu 250 (circle test 2026-11-25): the detour's room to the side */
 
 typedef enum {
   ROUTE_END = 0,
@@ -35,6 +38,15 @@ extern bool  routeButton;       /* rb: start button runs the closed-loop route *
 extern float routeTurnUs;       /* rtu: steering offset in us during turns */
 extern float routeTurnSpeed;    /* rtv: speed in cm/s during turns */
 extern float routeTurnLeadDeg;  /* rtl: stop turning this many deg early */
+/* going around an obstacle that blocks a straight (see car_route.c) */
+extern float routeAvoidWaitS;   /* raw: blocked this long, then go around (0 = only wait) */
+extern float routeAvoidSide;    /* ras: +1 = left, -1 = right */
+extern float routeAvoidDeg;     /* raa: angle out of the straight */
+extern float routeAvoidOutM;    /* rao: diagonal leg out and back in (m) */
+extern float routeAvoidPassM;   /* rap: leg beside the obstacle (m) */
+extern float routeAvoidBackM;   /* rab: back up first (m) */
+extern float routeAvoidSpeed;   /* rav: speed of the detour legs (cm/s) */
+extern float routeAvoidRoomM;   /* ram: room beside the line on the detour side (m) */
 
 void route_command(const char *line);
 void route_poll(int driveRes);  /* call from main loop after drive_result() */

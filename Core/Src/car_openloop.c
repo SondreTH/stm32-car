@@ -39,7 +39,8 @@
  * open loop: the car does not look at its speed or where it is.
  *
  * Two safety stops end the run (brake), they never steer or change the
- * speed: the sonar (something closer than OBST_STOP_CM; "os 0" turns it
+ * speed: the sonar (something closer than the stop distance in car_drive.c,
+ * OBST_STOP_CM + OBST_LOOK_S x the measured speed; "os 0" turns it
  * off) and a blocked wheel (motor on, no encoder counts for DRIVE_STALL_S).
  * The start button and "s" stop it too.
  *

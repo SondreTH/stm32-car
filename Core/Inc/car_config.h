@@ -80,8 +80,11 @@ extern "C" {
 /* ---- obstacle stop (HC-SR04) ---- */
 #define SONAR_TICK_US     10      /* one TIM3 count = (839+1) / 84 MHz = 10 us  */
 #define SONAR_MAX_CM      400.0f  /* no echo = nothing in range                 */
-#define OBST_STOP_CM      30.0f   /* closer than this: brake and pause the run  */
-#define OBST_CLEAR_CM     35.0f   /* further than this: continue the run        */
+#define SONAR_MIN_CM      2.0f    /* closer readings are no real echo (HC-SR04: 2 cm minimum): ignored */
+#define OBST_STOP_CM      30.0f   /* standing car: closer than this is an obstacle. A moving car
+                                     also adds OBST_LOOK_S seconds of driving ("so"), see car_drive.c */
+#define OBST_HYST_CM      10.0f   /* the way is clear this much further than the stop distance */
+#define OBST_CLEAR_STEPS  10      /* ... for this many readings in a row (1 s): one lost echo is not a clear way */
 
 #define MANUAL_PCT        60.0f   /* f / b commands */
 
@@ -101,6 +104,7 @@ extern float MOTOR_PCT_PER_CMS;   /* mg  slope, % per cm/s                      
 extern float BATT_DIVIDER;        /* vb  battery volts per volt on PA4                     */
 extern float SERVO_CENTER_US;     /* sc  servo pulse that drives straight                  */
 extern float STEER_KH;            /* kh  heading hold: us of steering per degree off, 0 = off */
+extern float OBST_LOOK_S;         /* so  obstacle: brake this many seconds of driving before it */
 
 #ifdef __cplusplus
 }

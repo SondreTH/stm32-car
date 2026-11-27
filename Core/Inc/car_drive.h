@@ -43,11 +43,13 @@ extern volatile float test_dist_m;
 extern volatile float Pos_Ref;         /* where the car should be now: area under SP_Vel */
 extern volatile float run_T, run_ta, run_td;   /* timed run: total, accel, decel time (s) */
 extern volatile bool  obstacle;        /* run paused by the sonar */
+extern volatile float obstStopCm;      /* stop distance now (cm): grows with the speed */
 extern volatile uint32_t driveSteps;   /* counts control steps, for the main loop */
 
 void  Start_Motion_Profile(float dist_m, float nominal_cm_s, float accel_s);
 bool  Start_Timed_Profile(float dist_m, float total_s, float accel_s, float decel_s);
 bool  drive_start(float dist_m);   /* timed run if run_T > 0, else Start_Motion_Profile */
+bool  drive_start_at(float dist_m, float speed_cm_s);   /* run at this nominal speed */
 float ControlPID(float setpoint, float input, float dt);
 void  Set_Speed_cm_s(float target_cm_s);     /* end any run, then hold this speed open loop */
 

@@ -12,6 +12,7 @@
  *   vb <V>    battery voltage from a multimeter: calibrates the reading
  *   sp si     speed loop gains             pf <Hz>  motor PWM frequency
  *   kh <us/deg>  heading hold (0 = off)    sc <us>  servo pulse for straight
+ *   so <s>    obstacle stop distance: 30 cm + this many s x speed
  *   Y         zero the heading             cal  steering calibration drive
  *   v <cm/s>  hold a speed (speed loop)    s   stop (coast)
  *   f / b     forward / back at 60 %       1..6  50..100 %, same direction
@@ -71,6 +72,8 @@ static void print_help(void) {
   say("pf <Hz>   motor PWM frequency 50..5000 (lower = more torque at low %)");
   say("sp / si <gain>  speed loop gains     kh <us/deg>  heading hold, 0 = off");
   say("sc <us>   servo pulse that drives straight   Y  zero the heading");
+  say("so <s>    obstacle: stop 30 cm + this many s x speed before it (1 = 100 cm at 70 cm/s)");
+  say("rp rs rg rb  route (car_route.c)   ra  going around an obstacle: raw ras raa rao rap rab rav");
   say("cal       steering calibration: drives ~30 s in curves, needs 5 x 2 m");
   say("ol        open-loop plan: show it   ol <step> <motor %> <steer us, - = left> <s>");
   say("og        run the plan in 2 s   od  print its recording   os 0/1 sonar stop   ob 0/1 button");
@@ -99,7 +102,7 @@ static void print_settings(void) {
   lb_clear(); lb_str("motor ms="); lb_float(MOTOR_START_PCT, 1); lb_str(" mo="); lb_float(MOTOR_MIN_PCT, 1);
   lb_str(" mg="); lb_float(MOTOR_PCT_PER_CMS, 2);
   lb_str(" pf="); lb_float(motor_pwm_hz_now(), 0);
-  lb_str(" sonar="); lb_float(sonarCm, 0); lb_str("cm");
+  lb_str(" sonar="); lb_float(sonarCm, 0); lb_str("cm so="); lb_float(OBST_LOOK_S, 1); lb_str("s");
   lb_str(" batt="); lb_float(battery_volts(), 2); lb_str("V (PA4 "); lb_float(battery_pin_volts(), 2);
   lb_str("V x "); lb_float(BATT_DIVIDER, 2); lb_str(")");
   if (battLow) lb_str(" LOW!");
@@ -413,6 +416,12 @@ static void handle_command(char *line) {
   if (c == 'S' && (c2 == 'p' || c2 == 'i')) {   /* speed loop gains */
     if (a2 < 0) { say("ERR gains are positive"); return; }
     if (c2 == 'p') Kvp = a2; else Kvi = a2;
+    print_settings();
+    return;
+  }
+  if (c == 'S' && c2 == 'o') {   /* obstacle: brake this many seconds of driving before it */
+    if (a2 < 0.0f || a2 > 3.0f) { say("ERR so <s> 0..3 (0 = stop at 30 cm, as before)"); return; }
+    OBST_LOOK_S = a2;
     print_settings();
     return;
   }
