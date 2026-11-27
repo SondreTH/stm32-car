@@ -97,6 +97,7 @@ volatile bool  obstacle = false;      // Run paused: something closer than obstS
 volatile float obstStopCm = OBST_STOP_CM;   // Stop distance now: grows with the speed
 volatile uint32_t driveSteps = 0;     // Control steps so far
 static int obstHits = 0;              // Close readings in a row
+static int obstClear = 0;             // Clear readings in a row (while paused)
 
 /* Motor output and anti-windup */
 static float openLoopCms = 0.0f;      // "v" command: hold this speed without the PID
@@ -124,6 +125,7 @@ static void reset_run(void) {
   AverageSpeed = 0.0f;
   obstacle = false;
   obstHits = 0;
+  obstClear = 0;
   openLoopCms = 0.0f;
 
   /* Reset PID state (M2.10 Slide 11) */
@@ -439,15 +441,20 @@ void drive_update(void) {
    * car is meant to drive (profile or speed hold) or what it drives now,
    * whichever is more. While paused the profile is frozen, so the distance
    * it takes to go on stays the same. Readings under SONAR_MIN_CM are not
-   * real echoes. Then start the next sonar measurement (its echo is read
-   * before the next step). */
+   * real echoes. The way is only clear after OBST_CLEAR_STEPS clear readings
+   * in a row: close to a box the sonar loses an echo now and then and reads
+   * "nothing there" (2026-11-27: every lost echo let the car creep on, until
+   * it touched the box). Then start the next sonar measurement (its echo is
+   * read before the next step). */
   float planned = fabsf(state != DRIVE_OFF ? SP_Vel : openLoopCms);
   float driving = fabsf(Speed_CM_SEC);
   obstStopCm = OBST_STOP_CM + OBST_LOOK_S * (planned > driving ? planned : driving);
   if (sonarCm >= SONAR_MIN_CM && sonarCm < obstStopCm) { if (obstHits < 2) obstHits++; }
   else obstHits = 0;
+  if (sonarCm > obstStopCm + OBST_HYST_CM) { if (obstClear < OBST_CLEAR_STEPS) obstClear++; }
+  else obstClear = 0;
   if (obstHits >= 2) obstacle = true;
-  else if (sonarCm > obstStopCm + OBST_HYST_CM) obstacle = false;
+  else if (obstClear >= OBST_CLEAR_STEPS) obstacle = false;
   sonar_trigger();
 
   /* No run: only a held speed ("v", the route's turns) drives from here.

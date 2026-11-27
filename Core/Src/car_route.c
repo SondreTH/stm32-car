@@ -6,13 +6,14 @@
  *   rs <step> <s|t|w|0> [val]       edit one 1-based step (0 = end route here)
  *   rg                              arm and run the route (2 s countdown)
  *   rb [0|1]                        start button runs this route
- *   rtu <us>                        turn steering offset from centre (default 350)
+ *   rtu <us>                        turn steering offset from centre (default 250)
  *   rtv <cm/s>                      turn speed (default 22)
  *   rtl <deg>                       turn lead angle before target (default 4)
  *   ra                              show the settings for going around an obstacle
- *   raw <s>  ras <1|-1>  raa <deg>  rao <m>  rap <m>  rab <m>  rav <cm/s>
+ *   raw <s>  ras <1|-1>  raa <deg>  rao <m>  rap <m>  rab <m>  rav <cm/s>  ram <m>
  *                                   wait, side (1 = left), angle out, diagonal leg,
- *                                   leg beside it, back up first, speed (see below)
+ *                                   leg beside it, back up first, speed, room to
+ *                                   the side (see below)
  *
  * Going around an obstacle (added 2026-11-26). The sonar pauses a straight
  * (car_drive.c). If the way is still blocked after routeAvoidWaitS, the car
@@ -28,6 +29,23 @@
  * straight), added up while it drives. The sonar only looks forward, so
  * the car cannot see how wide or long the obstacle is: set out/pass to
  * what the course uses. During the detour an obstacle only pauses the car.
+ *
+ * The car cannot see a curb at its side either. Each turn moves it
+ * R x (1 - cos angle) sideways (R = ROUTE_TURN_RADIUS_CM) and the diagonal
+ * adds out x sin(angle). Before
+ * it starts, the detour is fitted into routeAvoidRoomM (ram, measure the
+ * road beside the line): the diagonal is made shorter if needed, and if
+ * even the turns alone need more room, the car does not go around but
+ * waits. Backing up first (rab) matters too: a 45 deg turn moves the car
+ * about 52 cm forward, so with too little back-up the car ends up pointing
+ * at the obstacle again (2026-11-27: 0.5 m was too little, 1.2 m worked but looked too far).
+ *
+ * Default since 2026-11-27: no diagonal (rao 0), 70 deg arcs. The car
+ * drives one S out (left 70, right 70: 96 cm to the side, 137 cm along),
+ * passes, and the same S back, so it ends on the line at the same heading
+ * by geometry, with no straight diagonals that drift. The 137 cm along is
+ * about the stop gap (~58 cm) + the back-up (0.8 m): it is out to the
+ * side just when it reaches the obstacle. 55-60 deg pass too close.
  * ===================================================================== */
 #include "main.h"
 #include "car_route.h"
@@ -58,11 +76,12 @@ float routeTurnLeadDeg = 4.0f;
 /* Going around an obstacle: defaults of the "ra.." commands */
 float routeAvoidWaitS  = 10.0f;   /* raw: blocked this long, then go around (0 = only wait) */
 float routeAvoidSide   = 1.0f;    /* ras: +1 = around on the left, -1 = on the right */
-float routeAvoidDeg    = 45.0f;   /* raa: angle out of the straight */
-float routeAvoidOutM   = 1.0f;    /* rao: diagonal leg out (and back in) */
+float routeAvoidDeg    = 70.0f;   /* raa: angle out of the straight */
+float routeAvoidOutM   = 0.0f;    /* rao: diagonal leg out (and back in), 0 = arcs only */
 float routeAvoidPassM  = 1.0f;    /* rap: leg parallel to the straight, beside the obstacle */
-float routeAvoidBackM  = 0.5f;    /* rab: back up first, so the first turn has room */
+float routeAvoidBackM  = 0.8f;    /* rab: back up first, so the first turn has room */
 float routeAvoidSpeed  = 30.0f;   /* rav: speed of the detour legs (cm/s) */
+float routeAvoidRoomM  = 1.5f;    /* ram: room beside the line on the detour side (m) */
 
 typedef enum { RT_IDLE = 0, RT_ARMED, RT_STRAIGHT, RT_TURN, RT_WAIT, RT_AVOID } RouteState;
 static RouteState rtState = RT_IDLE;
@@ -90,9 +109,11 @@ static uint32_t avBlockedMs = 0;     /* since when */
 static float    avYaw0 = 0.0f;       /* heading of the straight */
 static float    avLeftCm = 0.0f;     /* straight still to drive when the detour began */
 static float    avAlongCm = 0.0f;    /* detour progress along the straight */
-static float    avSideCm = 0.0f;     /* detour distance to the side (+ = left) */
+static float    avSideCm = 0.0f;     /* distance from the route line (+ = left), over all detours of this straight */
+static bool     avBackToLine = false;   /* rest of a straight after a detour: steer back onto the line */
 static float    avLastDist = 0.0f;   /* Real_Dist at the last update */
 static bool     avLegBlocked = false;   /* a detour leg is paused by the sonar (told once) */
+static bool     avNoRoom = false;       /* "no room to go around" was told for this stop */
 
 int route_steps(void) {
   int n = 0;
@@ -178,6 +199,8 @@ static void start_step(int idx) {
   if (s->type == ROUTE_STRAIGHT) {
     rtState = RT_STRAIGHT;
     avBlocked = false;
+    avSideCm = 0.0f;
+    avBackToLine = false;
     heading_set_target(rtTargetYaw);
     heading_set_hold(true);
     if (!drive_start(s->val)) {
@@ -244,14 +267,36 @@ static void start_avoid_step(void) {
   avLastDist = 0.0f;   /* drive_start_at() set Real_Dist back to 0 */
 }
 
-/* The straight has been blocked for routeAvoidWaitS: plan the detour */
-static void begin_avoid(void) {
+/* How far to the side the detour takes the car (cm), for a diagonal of outCm */
+static float avoid_side_cm(float outCm) {
+  float a = routeAvoidDeg * 0.0174533f;
+  return 2.0f * ROUTE_TURN_RADIUS_CM * (1.0f - cosf(a)) + outCm * sinf(a);
+}
+
+/* The straight has been blocked for routeAvoidWaitS: plan the detour.
+ * false = it does not fit into routeAvoidRoomM, so the car keeps waiting. */
+static bool begin_avoid(void) {
   float s = (routeAvoidSide >= 0.0f) ? 1.0f : -1.0f;   /* +1 = left */
   float a = routeAvoidDeg;
+  float roomCm = routeAvoidRoomM * 100.0f;
+  float outCm = routeAvoidOutM * 100.0f;
+  if (avoid_side_cm(outCm) > roomCm) {
+    /* Make the diagonal shorter so the detour fits beside the line */
+    outCm = (roomCm - avoid_side_cm(0.0f)) / sinf(a * 0.0174533f);
+    if (outCm < 20.0f) {
+      if (!avNoRoom) {
+        avNoRoom = true;
+        lb_clear(); lb_str("route step "); lb_int(rtIdx + 1); lb_str(": no room to go around (needs ");
+        lb_float(avoid_side_cm(20.0f) / 100.0f, 2); lb_str(" m, ram "); lb_float(routeAvoidRoomM, 2);
+        lb_str(" m), waiting"); lb_send(false);
+      }
+      return false;
+    }
+  }
   avYaw0 = rtTargetYaw;
   avLeftCm = target_dist_cm - Real_Dist;
   avAlongCm = 0.0f;
-  avSideCm = 0.0f;
+  avBackToLine = false;   /* avSideCm is kept: a second detour adds to the first */
   avLastDist = Real_Dist;
   drive_cancel();   /* end the paused run; the motor stays braked */
 
@@ -259,11 +304,11 @@ static void begin_avoid(void) {
   avIdx = 0;
   if (routeAvoidBackM > 0.01f) avoid_add(ROUTE_STRAIGHT, -routeAvoidBackM, 0.0f);
   avoid_add(ROUTE_TURN, s, s * a);                     /* turn out */
-  if (routeAvoidOutM > 0.01f) avoid_add(ROUTE_STRAIGHT, routeAvoidOutM, s * a);
+  if (outCm > 1.0f) avoid_add(ROUTE_STRAIGHT, outCm / 100.0f, s * a);
   avoid_add(ROUTE_TURN, -s, 0.0f);                     /* parallel to the straight */
   if (routeAvoidPassM > 0.01f) avoid_add(ROUTE_STRAIGHT, routeAvoidPassM, 0.0f);
   avoid_add(ROUTE_TURN, -s, -s * a);                   /* turn in */
-  if (routeAvoidOutM > 0.01f) avoid_add(ROUTE_STRAIGHT, routeAvoidOutM, -s * a);
+  if (outCm > 1.0f) avoid_add(ROUTE_STRAIGHT, outCm / 100.0f, -s * a);
   avoid_add(ROUTE_TURN, s, 0.0f);                      /* back onto the line */
 
   rtState = RT_AVOID;
@@ -271,10 +316,17 @@ static void begin_avoid(void) {
   lb_float(routeAvoidWaitS, 0); lb_str(" s, going around it on the ");
   lb_str(s > 0.0f ? "left, " : "right, "); lb_float(avLeftCm / 100.0f, 2);
   lb_str(" m of the straight left"); lb_send(false);
+  lb_clear(); lb_str("  diagonal "); lb_float(outCm / 100.0f, 2); lb_str(" m, out to ");
+  lb_float(avoid_side_cm(outCm) / 100.0f, 2); lb_str(" m beside the line"); lb_send(false);
   start_avoid_step();
+  return true;
 }
 
-/* The detour is done: drive the rest of the straight, at its heading */
+/* The detour is done: drive the rest of the straight. The arcs end close
+ * to the line, but every pause on the way (an obstacle in the middle of an
+ * arc, rolling on, starting again) leaves a few cm to the side (2026-11-27:
+ * 1-15 cm, more with several interruptions). avSideCm has measured it, so
+ * the rest of the straight aims back at the line (route_line_target). */
 static void end_avoid(void) {
   float left = avLeftCm - avAlongCm;
   lb_clear(); lb_str("route step "); lb_int(rtIdx + 1); lb_str(": around it, ");
@@ -295,8 +347,23 @@ static void end_avoid(void) {
   }
   rtState = RT_STRAIGHT;
   avBlocked = false;
-  if (!drive_start(left / 100.0f))
+  if (!drive_start(left / 100.0f)) {
     route_finish("ERR route straight does not fit (check tt/vn)", false);
+    return;
+  }
+  avLastDist = 0.0f;   /* drive_start() set Real_Dist back to 0 */
+  avBackToLine = true;
+}
+
+/* Heading for the rest of a straight after a detour: the line's heading,
+ * turned towards the line by ROUTE_LINE_GAIN degrees per cm off it, at most
+ * ROUTE_LINE_MAX_DEG. Close to the line it is the line's heading again. */
+static void route_line_target(void) {
+  avoid_track();
+  float c = -ROUTE_LINE_GAIN * avSideCm;   /* left of the line (+) -> aim right (-) */
+  if (c >  ROUTE_LINE_MAX_DEG) c =  ROUTE_LINE_MAX_DEG;
+  if (c < -ROUTE_LINE_MAX_DEG) c = -ROUTE_LINE_MAX_DEG;
+  heading_set_target(avYaw0 + c);
 }
 
 static void poll_avoid(int driveRes) {
@@ -331,6 +398,8 @@ static void print_avoid(void) {
   lb_clear(); lb_str("  diagonal "); lb_float(routeAvoidOutM, 2); lb_str(" m (rao), beside it ");
   lb_float(routeAvoidPassM, 2); lb_str(" m (rap), back up "); lb_float(routeAvoidBackM, 2);
   lb_str(" m (rab), "); lb_float(routeAvoidSpeed, 0); lb_str(" cm/s (rav)"); lb_send(false);
+  lb_clear(); lb_str("  room beside the line "); lb_float(routeAvoidRoomM, 2); lb_str(" m (ram), needs ");
+  lb_float(avoid_side_cm(routeAvoidOutM * 100.0f) / 100.0f, 2); lb_str(" m"); lb_send(false);
   lb_clear(); lb_str("  stops "); lb_float(OBST_STOP_CM, 0); lb_str(" cm + ");
   lb_float(OBST_LOOK_S, 1); lb_str(" s x speed before an obstacle (so)"); lb_send(false);
 }
@@ -356,18 +425,20 @@ void route_poll(int driveRes) {
   }
 
   if (rtState == RT_STRAIGHT) {
+    if (avBackToLine) route_line_target();
     if (driveRes == RUN_NONE) {
       /* Paused by the sonar (car_drive.c brakes and waits). Still blocked
        * after routeAvoidWaitS: drive around it. */
       if (obstacle && state != DRIVE_OFF && target_dist_cm > 0.0f) {
         if (!avBlocked) {
           avBlocked = true;
+          avNoRoom = false;
           avBlockedMs = HAL_GetTick();
           lb_clear(); lb_str("route step "); lb_int(rtIdx + 1); lb_str(": obstacle at ");
           lb_float(sonarCm, 0); lb_str(" cm, waiting"); lb_send(false);
         } else if (routeAvoidWaitS > 0.0f &&
                    HAL_GetTick() - avBlockedMs >= (uint32_t)(routeAvoidWaitS * 1000.0f)) {
-          begin_avoid();
+          begin_avoid();   /* no room: it says so once and the car keeps waiting */
         }
       } else {
         avBlocked = false;
@@ -460,8 +531,11 @@ void route_command(const char *line) {
     } else if (c3 == 'v') {
       if (v < 5.0f || v > DRIVE_MAX_CMS) { say("ERR rav <cm/s>"); return; }
       routeAvoidSpeed = v;
+    } else if (c3 == 'm') {
+      if (v < 0.3f || v > 5.0f) { say("ERR ram <m> 0.3..5"); return; }
+      routeAvoidRoomM = v;
     } else if (c3 != '\0' && c3 != ' ') {
-      say("ERR use ra, raw, ras, raa, rao, rap, rab or rav");
+      say("ERR use ra, raw, ras, raa, rao, rap, rab, rav or ram");
       return;
     }
     print_avoid();
@@ -508,9 +582,6 @@ void route_command(const char *line) {
     float val = strtof(p, NULL);
     routePlan[idx - 1].type = t;
     routePlan[idx - 1].val = val;
-    if (idx < ROUTE_MAX_STEPS && routePlan[idx].type == ROUTE_END) {
-      /* keep terminator after new last step */
-    }
     print_route();
     return;
   }
@@ -536,5 +607,5 @@ void route_command(const char *line) {
     return;
   }
 
-  say("ERR unknown r* command (rp, rs, rg, rb, rtu, rtv, rtl)");
+  say("ERR unknown r* command (rp, rs, rg, rb, rt.., ra..)");
 }

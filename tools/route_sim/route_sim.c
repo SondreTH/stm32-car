@@ -17,11 +17,19 @@
  *   gone=-1    s: the box is taken away at this time (-1 = never)
  *   raw= ras= raa= rao= rap= rab= rav=  the route's detour settings
  *   so=        obstacle look-ahead (s)        scale=1  gyro reads scale x the turn
+ *   ram=       room beside the line for the detour (m)
+ *   nudge=<deg> nudget=<s>  turn the car by hand at that time (a bump):
+ *              the hold turns it back, but it is then off to the side
+ *   radl=1 radr=1  turn radius factors left / right: the car turns wider one
+ *              way, so the arcs out and back do not cancel
+ *   cone=15    sonar half-angle (deg): what the real HC-SR04 sees, not 8
+ *   miss=0     share of echoes lost (0..1) while the sonar sees the box:
+ *              the real sonar then reads "nothing there" now and then
  *
  * The model: speed from car_drive.c's motor % as in drive_sim (no slip),
  * curvature from the servo pulse (73 cm radius at 250 us, measured on the
- * car), the heading hold as in car_heading.c, a sonar with three rays
- * (-8, 0, +8 degrees) from the front of the car. The car is a 30 x 18 cm
+ * car), the heading hold as in car_heading.c, a sonar with seven rays
+ * across +-cone degrees from the front of the car. The car is a 30 x 18 cm
  * box; touching the obstacle ends the run with "HIT". It checks the logic
  * (sides, signs, distances), not real centimetres.
  * ===================================================================== */
@@ -107,6 +115,7 @@ void lb_send(bool dropIfBusy) {
 void say(const char *s) { lb_clear(); lb_str(s); lb_send(false); }
 
 /* ---- the model car and the floor ---- */
+static double radL = 1.0, radR = 1.0;   /* turn radius factors, left and right ("radl=", "radr=") */
 static double px = 0, py = 0, head = 0;   /* m, m, deg (+ = left of the start direction) */
 static double boxX0, boxX1, boxY0, boxY1;
 static int boxThere = 1;
@@ -130,6 +139,7 @@ static void plant_step(double dt) {     /* speed: the drive_sim model, defaults 
   sPath += ds * 100.0;
   /* curvature from the servo: + pulse = right, 73 cm radius at 250 us */
   double k = ((double)servoUs - SERVO_PULSE_CENTER) / 250.0 / 0.73;
+  k /= (k < 0) ? radL : radR;   /* the real car turns tighter one way than the other */
   double h0 = head * M_PI / 180.0;
   px += -sin(h0) * ds;
   py +=  cos(h0) * ds;
@@ -189,6 +199,11 @@ int main(int argc, char **argv) {
   routeAvoidBackM = (float)opt(argc, argv, "rab", routeAvoidBackM);
   routeAvoidSpeed = (float)opt(argc, argv, "rav", routeAvoidSpeed);
   OBST_LOOK_S     = (float)opt(argc, argv, "so", OBST_LOOK_S);
+  routeAvoidRoomM = (float)opt(argc, argv, "ram", routeAvoidRoomM);
+  double cone = opt(argc, argv, "cone", 15), miss = opt(argc, argv, "miss", 0);
+  radL = opt(argc, argv, "radl", 1); radR = opt(argc, argv, "radr", 1);
+  double nudgeT = opt(argc, argv, "nudget", -1), nudgeDeg = opt(argc, argv, "nudge", 0);
+  unsigned seed = 12345;
   routeTurnUs = 250.0f;
   boxX0 = bx - bw / 2; boxX1 = bx + bw / 2; boxY0 = at; boxY1 = at + bd;
   if (at <= 0) boxThere = 0;
@@ -206,7 +221,7 @@ int main(int argc, char **argv) {
   routePlan[n] = (RouteStep){ ROUTE_END, 0.0f };
   route_arm();
 
-  double minGap = 1e9;
+  double minGap = 1e9, maxSide = 0;
   int hit = 0;
   for (nowMs = 1; nowMs < 400000 && !routeOver && !hit; nowMs++) {
     plant_step(0.001);
@@ -217,15 +232,22 @@ int main(int argc, char **argv) {
       if (g < minGap) minGap = g;
       if (hit) printf("%7.1f s  HIT the box at x %.2f y %.2f\n", nowMs / 1000.0, px, py);
     }
+    if (fabs(px) > maxSide) maxSide = fabs(px);
+    if (nudgeT >= 0 && nowMs == (uint32_t)(nudgeT * 1000.0)) {   /* the car is bumped: turned a few degrees */
+      head += nudgeDeg;
+      printf("%7.1f s  (the car is turned %.0f deg)\n", nowMs / 1000.0, nudgeDeg);
+    }
     if (nowMs % 5 == 0) heading_hold();
     if (nowMs % DRIVE_PERIOD_MS == 0) {
       double best = SONAR_MAX_CM;
       if (boxThere) {
         double h = head * M_PI / 180.0, fx = px - sin(h) * 0.15, fy = py + cos(h) * 0.15;
-        for (int r = -1; r <= 1; r++) {
-          double d = ray_box(fx, fy, head + 8.0 * r);
+        for (int r = -3; r <= 3; r++) {
+          double d = ray_box(fx, fy, head + cone / 3.0 * r);
           if (d >= 0 && d * 100 < best) best = d * 100;
         }
+        seed = seed * 1103515245u + 12345u;
+        if (best < SONAR_MAX_CM && ((seed >> 16) % 1000) < miss * 1000) best = SONAR_MAX_CM;   /* lost echo */
       }
       sonarCm = (float)best;
       drive_update();
@@ -235,7 +257,7 @@ int main(int argc, char **argv) {
   }
   if (csv) fclose(csv);
   double ex = then ? 3.0 + 0.73 : 0.0, ey = then ? len + 0.73 : len;   /* where the route should end */
-  printf("end: x %.2f m, y %.2f m, heading %.1f deg (route plan: x %.2f, y %.2f, %d deg); closest to the box %.0f cm%s\n",
-         px, py, head, ex, ey, then ? -90 : 0, minGap * 100, hit ? "  ** HIT **" : "");
+  printf("end: x %.2f m, y %.2f m, heading %.1f deg (route plan: x %.2f, y %.2f, %d deg); closest to the box %.0f cm, widest %.2f m to the side%s\n",
+         px, py, head, ex, ey, then ? -90 : 0, minGap * 100, maxSide, hit ? "  ** HIT **" : "");
   return hit ? 2 : 0;
 }

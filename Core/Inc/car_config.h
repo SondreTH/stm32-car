@@ -84,6 +84,7 @@ extern "C" {
 #define OBST_STOP_CM      30.0f   /* standing car: closer than this is an obstacle. A moving car
                                      also adds OBST_LOOK_S seconds of driving ("so"), see car_drive.c */
 #define OBST_HYST_CM      10.0f   /* the way is clear this much further than the stop distance */
+#define OBST_CLEAR_STEPS  10      /* ... for this many readings in a row (1 s): one lost echo is not a clear way */
 
 #define MANUAL_PCT        60.0f   /* f / b commands */
 
