@@ -181,7 +181,7 @@ obstStopCm = OBST_STOP_CM + OBST_LOOK_S x max(planned speed, measured speed)
 ```
 
 The planned speed is `SP_Vel` in a run and the held speed (`v`, the route's
-turns) otherwise. `sonarCm < obstStopCm` twice in a row sets `obstacle`;
+turns) otherwise. `sonarCm < obstStopCm` twice in a row sets `obstacle`; it is only cleared after 1 s of clear readings in a row (`OBST_CLEAR_STEPS`), because close to a box the sonar loses echoes and reads "nothing there" (2026-11-27: each lost echo let the car creep on until it touched the box);
 `sonarCm > obstStopCm + OBST_HYST_CM` (10) clears it. Readings under
 `SONAR_MIN_CM` (2 cm) are ignored: the HC-SR04 cannot measure that close,
 they were noise from a loose wire. `so <s>` sets `OBST_LOOK_S`; `so 0`

@@ -28,18 +28,60 @@ Anything typed is lost at a reset (and unplugging the USB is a reset).
 
 ## Going around an obstacle
 
-Added 2026-11-26 (not run on the car yet, only in `tools/route_sim`).
+Added 2026-11-26. First runs on the car 2026-11-27 (6 m straight, a box
+at about 3 m, `vn 30`, commands over Bluetooth):
+
+| Run | Settings | What happened |
+|---|---|---|
+| 1 | `raw 5`, `rab 0.5` | Started the detour, but after backing up 0.5 m and the 45 degree turn (which moves the car about 52 cm forward) it pointed at the box again: "the detour is blocked", stood about 30 s. |
+| 2 | `vn 70`, `rab 1.2` | Saw the obstacle at 86 cm, rolled to 19 cm while braking, then the wait kept starting over and the car crept on: each lost echo cleared `obstacle`. Touched the person standing in front. |
+| 3 | `vn 30`, `so 2`, `rab 1.2` | **All the way around**: back 1.19 m, out, beside it, in, back on the line (10 cm to the side), ROUTE DONE. Stopped about 1 m before the box (`so 1` is closer). |
+| 4 | `so 1`, `rab 1.2` | All the way around, stopped 58 cm before the box, 15 cm to the side at the end. Smooth. The professor: it backs up a little too far. |
+| 5 | `rab 0.8` | Stopped by the laptop watcher (the wait had restarted 3 times), not by the car. |
+| 6 | `raw 10`, `rab 0.8` | All the way around, but paused after the first turn and beside the box, looked rough. Ended about 10 degrees to the right by eye, with only 0.76 m left to straighten out. |
+| 7 | `rab 1.0`, `rtl 2` | Started without a clear go from the team, the car was lifted off a table. |
+| 8 | 70 degree arcs, `rao 0` | Old firmware crept from 60 to 21 cm while waiting, stopped by the watcher. |
+| 9 | new firmware, arcs | First detour: back 0.81 m, S out, 1 m beside it, S back, **1 cm from the line**. Then a second obstacle and a second detour; picked up by hand. |
+| 10 | same | Two detours, 3 and 9 cm from the line, ROUTE DONE, but it paused in the middle of an arc for something at 51 cm. |
+| 11, 12 | same | Around without a stop (run 12), back on the line 1 and 7 cm to the side. With several interruptions it ended a little beside the line: fixed by steering back to the line (below). |
+
+Fixed after these runs:
+
+- `obstacle` clears only after 1 s of clear readings in a row
+  (`OBST_CLEAR_STEPS`): one lost echo let the old code creep on.
+- The detour is two smooth S arcs: back up 0.8 m, turn 70 degrees out and
+  70 degrees back (`raa 70`, no diagonal, `rao 0`), 1 m beside it, the same
+  S back. 96 cm to the side, about 1.4 m along for each S. The S out and
+  the S back are mirror images, so a car that turns wider one way still
+  ends on the line.
+- After a detour the rest of the straight aims back at the line,
+  `ROUTE_LINE_GAIN` (0.5) degrees per cm off it, at most 15. The offset is
+  added up over all detours of the straight.
+- `ram` (room beside the line, default 1.5 m): the detour is fitted into
+  it, so it does not run into a curb; if it cannot fit, the car waits.
+- Defaults `raw 10`, `rab 0.8`.
+- `tools/route_sim`: wider sonar (`cone=15`), lost echoes (`miss=`), a bump
+  (`nudge=`, `nudget=`), different turn radius left and right (`radl=`,
+  `radr=`), and how far the car went to the side. It reproduces run 2 with
+  the old code (the car creeps into the box).
+
+Things learned: the stop is always reported at about 58 cm because that
+is the stop distance at 30 cm/s (30 cm + 1 s x 30 cm/s), not one object.
+On open floor the sonar read a steady 182 cm at every steering position,
+so the pauses were real things in front (people walking next to the car).
+Walk behind the car. A turn pauses for an obstacle like a straight does.
+`vn 30` and `rtl 2` were typed in for these runs, not in the code.
 
 1. The sonar stops the car early enough: 30 cm + 1 s of driving, so
    100 cm at 70 cm/s (`so`, see [control.md](control.md#obstacle-pause)).
 2. The straight waits. If the obstacle goes away, it simply goes on.
-3. Still blocked after 10 s (`raw`): back up 0.5 m (`rab`), turn 45 degrees
-   out (`raa`, left by default, `ras -1` = right), 1 m diagonal (`rao`),
-   turn back parallel, 1 m beside the obstacle (`rap`), turn in, 1 m
-   diagonal, turn back onto the line, then the rest of the straight. The
-   legs run at 30 cm/s (`rav`); the turns use `rtu`/`rtv`/`rtl` like route
-   turns. With the defaults the car is about 1.1 m to the side and the
-   detour covers about 3.8 m along the straight.
+3. Still blocked after 10 s (`raw`): back up 0.8 m (`rab`), turn 70 degrees
+   out (`raa`, left by default, `ras -1` = right), turn back parallel
+   (with `rao` > 0 a diagonal comes between the turns), 1 m beside the
+   obstacle (`rap`), turn in, turn back onto the line, then the rest of the
+   straight, aimed back at the line. The legs run at 30 cm/s (`rav`); the
+   turns use `rtu`/`rtv`/`rtl` like route turns. With the defaults the car
+   is 96 cm to the side and the detour covers about 3.1 m along the straight.
 4. How far along the straight it got is added up from the encoder and the
    gyro while it drives, so the rest of the straight comes out right even
    if a turn is a bit wider. The car prints it: `around it, 3.82 m along,

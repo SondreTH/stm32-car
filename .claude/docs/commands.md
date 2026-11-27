@@ -33,10 +33,11 @@ the run time; `M 1035` is counts per metre, `ms 60` is the start power;
 | `ra` | show the settings for going around an obstacle | – |
 | `raw <s>` | a route straight blocked this long: go around (0 = only wait), default 10 | `routeAvoidWaitS` |
 | `ras <1/-1>` | go around on the left (1, default) or right (-1) | `routeAvoidSide` |
-| `raa <deg>` | angle out of the straight, default 45 | `routeAvoidDeg` |
-| `rao <m>` | diagonal leg out and back in, default 1.0 (about 1.1 m to the side in all) | `routeAvoidOutM` |
+| `raa <deg>` | angle out of the straight, default 70 (with `rao 0`: one smooth S out and one back, 96 cm to the side) | `routeAvoidDeg` |
+| `rao <m>` | diagonal leg out and back in, default 0 = arcs only (the old 45 deg + 1.0 m went about 1.1 m to the side) | `routeAvoidOutM` |
 | `rap <m>` | leg beside the obstacle, default 1.0 | `routeAvoidPassM` |
-| `rab <m>` | back up first, default 0.5 | `routeAvoidBackM` |
+| `rab <m>` | back up first, default 0.8 (0.5 was too little on the car: the 45 degree turn pointed it at the box again; 1.2 worked but looked too far) | `routeAvoidBackM` |
+| `ram <m>` | room beside the line on the detour side (the car cannot see a curb), default 1.5. The diagonal is shortened to fit; if even that does not fit, the car waits | `routeAvoidRoomM` |
 | `rav <cm/s>` | speed of the detour legs, default 30 | `routeAvoidSpeed` |
 | `Y` | zero the heading (and the three axis angles in `G`) | `yawDeg` |
 | `cal` | steering calibration drive: holds the nominal speed and nine servo pulses for 3 s each, prints the turn radius of each. Needs the gyro and a clear strip 5 m x 2 m. `s` stops it | – |
