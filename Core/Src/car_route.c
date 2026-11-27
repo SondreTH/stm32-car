@@ -21,13 +21,28 @@
 #include <stdlib.h>
 #include <ctype.h>
 
+/* The track route as tuned on the car on 2026-11-26 (run 7 went all the
+ * way round). Right turns are negative. The 10 s waits before the turns
+ * let the gyro zero settle while the car stands. Tuned together with
+ * sc 1108, rtu 222, rtl 2 (typed in on the car). */
 RouteStep routePlan[ROUTE_MAX_STEPS] = {
-  { ROUTE_STRAIGHT,  1.5f },
-  { ROUTE_TURN,    -120.0f },
-  { ROUTE_STRAIGHT,  1.5f },
-  { ROUTE_TURN,    -120.0f },
-  { ROUTE_STRAIGHT,  1.5f },
-  { ROUTE_TURN,    -120.0f },
+  { ROUTE_TURN,      2.7f },   /* start: the loop turned 2.7 deg left (side 1 drifted right) */
+  { ROUTE_STRAIGHT, 42.5f },   /* side 1 */
+  { ROUTE_WAIT,     10.0f },
+  { ROUTE_TURN,    -84.8f },   /* corner 1: turned too far at -88.8 */
+  { ROUTE_STRAIGHT, 41.5f },   /* side 2 */
+  { ROUTE_WAIT,     10.0f },
+  { ROUTE_TURN,    -88.8f },   /* corner 2: 90 deg (the gyro reads ~1.35 % low) */
+  { ROUTE_STRAIGHT, 13.5f },   /* side 3 */
+  { ROUTE_WAIT,     10.0f },
+  { ROUTE_TURN,    -44.4f },   /* corner 3: 45 deg */
+  { ROUTE_STRAIGHT, 40.0f },   /* side 4, the diagonal */
+  { ROUTE_WAIT,     10.0f },
+  { ROUTE_TURN,    -44.4f },   /* corner 4: 45 deg */
+  { ROUTE_STRAIGHT, 11.1f },   /* side 5 */
+  { ROUTE_WAIT,     10.0f },
+  { ROUTE_TURN,    -88.8f },   /* last corner, back towards the start */
+  { ROUTE_STRAIGHT,  0.5f },   /* to the start line */
   { ROUTE_END,       0.0f }
 };
 
